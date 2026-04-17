@@ -17,20 +17,10 @@ girl_path = "girl.png"
 boy_path = "boy.png"
 
 # =============================
-# API URL — resolved from secrets / env / Railway default
+# API URL — hardcoded Railway backend
+# (change this one line if your Railway domain changes)
 # =============================
-def _resolve_api_url() -> str:
-    try:
-        if "API_URL" in st.secrets:
-            return str(st.secrets["API_URL"]).rstrip("/")
-    except Exception:
-        pass
-    env_url = os.environ.get("API_URL")
-    if env_url:
-        return env_url.rstrip("/")
-    return "https://interactive-educational-application-production.up.railway.app"
-
-API_URL = _resolve_api_url()
+API_URL = "https://interactive-educational-application-production.up.railway.app"
 
 # =============================
 # Session State
