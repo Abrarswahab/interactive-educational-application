@@ -3,6 +3,7 @@ from PIL import Image
 import os
 import time
 import requests
+from urllib.parse import quote
 
 st.set_page_config(page_title="المستكشف الذكي", page_icon="🌟", layout="wide")
 
@@ -14,8 +15,25 @@ kids_image_path = "kids.png"
 girl_path = "girl.png"
 boy_path = "boy.png"
 
-# رابط الـ API
-API_URL = "http://127.0.0.1:8000"
+# =============================
+# API URL — resolved in this order:
+# 1) Streamlit secrets  (recommended for deployment)
+# 2) Environment variable API_URL
+# 3) Railway production URL  (fallback)
+# 4) localhost                (only used if nothing else is set)
+# =============================
+def _resolve_api_url() -> str:
+    try:
+        if "API_URL" in st.secrets:
+            return str(st.secrets["API_URL"]).rstrip("/")
+    except Exception:
+        pass
+    env_url = os.environ.get("API_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    return "https://interactive-educational-application-production.up.railway.app"
+
+API_URL = _resolve_api_url()
 
 # =============================
 # Session State
@@ -40,21 +58,54 @@ if "predicted_spelling" not in st.session_state:
 # =============================
 # API helpers
 # =============================
-def predict_image(uploaded_file):
+def check_api_health() -> dict:
+    """Quick ping so we can tell the user if the backend is down BEFORE they upload."""
     try:
-        files = {
-            "file": (
-                uploaded_file.name,
-                uploaded_file.getvalue(),
-                uploaded_file.type or "image/jpeg",
-            )
-        }
-        response = requests.post(f"{API_URL}/predict", files=files, timeout=30)
+        r = requests.get(f"{API_URL}/health", timeout=5)
+        if r.status_code == 200:
+            return {"ok": True, "data": r.json()}
+        return {"ok": False, "error": f"الخادم رد بـ {r.status_code}"}
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "error": "تعذر الاتصال بالخادم."}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": "انتهت مهلة الاتصال بالخادم."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def predict_image(image_source):
+    """
+    Accepts either:
+      - a Streamlit UploadedFile (from st.file_uploader or st.camera_input)
+      - a (filename, bytes, mime) tuple
+      - raw bytes
+    """
+    try:
+        if hasattr(image_source, "getvalue"):
+            name = getattr(image_source, "name", "capture.jpg")
+            data = image_source.getvalue()
+            mime = getattr(image_source, "type", None) or "image/jpeg"
+        elif isinstance(image_source, tuple) and len(image_source) == 3:
+            name, data, mime = image_source
+        elif isinstance(image_source, (bytes, bytearray)):
+            name, data, mime = "capture.jpg", bytes(image_source), "image/jpeg"
+        else:
+            return {"error": "صيغة الصورة غير مدعومة."}
+
+        files = {"file": (name, data, mime)}
+        response = requests.post(f"{API_URL}/predict", files=files, timeout=60)
         if response.status_code == 200:
             return response.json()
-        return {"error": f"API error: {response.status_code}", "details": response.text}
+        # Try to surface the FastAPI `detail` field if present
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        return {"error": f"API error {response.status_code}: {detail}"}
     except requests.exceptions.ConnectionError:
-        return {"error": "تعذر الاتصال بالذكاء الاصطناعي. تأكدي أن FastAPI شغال."}
+        return {"error": f"تعذر الاتصال بالذكاء الاصطناعي على {API_URL}. تأكدي أن الخادم شغال."}
+    except requests.exceptions.Timeout:
+        return {"error": "النموذج استغرق وقتاً طويلاً — حاولي مرة أخرى."}
     except Exception as e:
         return {"error": str(e)}
 
@@ -575,39 +626,55 @@ def show_camera_page():
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     else:
-        st.markdown("""
-        <div class="nq-cam-frame">
-          <div class="cam-dots"></div>
-          <div class="cc tl"></div><div class="cc tr"></div>
-          <div class="cc bl"></div><div class="cc br"></div>
-          <div class="guide-sq">
-            <span class="guide-lbl">ضع الشيء هنا</span>
-          </div>
-          <div class="cam-error">
-            <div class="cam-error-icon">📷</div>
-            <div class="cam-error-text">لم نتمكن من فتح الكاميرا<br>تأكد من إذن الكاميرا</div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    uploaded = st.file_uploader(
-        "اختر صورة من جهازك 🖼️",
-        type=["jpg", "jpeg", "png", "webp"],
-        label_visibility="visible",
-    )
-    if uploaded:
-        result = predict_image(uploaded)
-        if "error" in result:
-            st.error(result["error"])
+        # API health banner — so kids/parents know if the backend is reachable
+        health = check_api_health()
+        if health["ok"]:
+            st.success(f"✅ الخادم متصل — {API_URL}")
         else:
-            st.session_state.captured_image = uploaded.getvalue()
-            st.session_state.captured_name = uploaded.name
-            st.session_state.predicted_label = result.get("label", "غير معروف")
-            conf_value = result.get("confidence", 0)
-            st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
-            st.session_state.predicted_emoji = result.get("emoji", "❓")
-            st.session_state.predicted_spelling = result.get("spelling", [])
-            st.rerun()
+            st.error(f"⚠️ {health['error']}  \nالخادم: {API_URL}")
+
+        # Real camera + upload, in two tabs
+        tab_cam, tab_upload = st.tabs(["📷 الكاميرا", "🖼️ رفع صورة"])
+
+        with tab_cam:
+            st.caption("اسمحي للمتصفح بالوصول إلى الكاميرا ثم اضغطي على زر الالتقاط.")
+            cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
+            if cam_shot is not None:
+                with st.spinner("🤖 جاري التعرف على الصورة..."):
+                    result = predict_image(cam_shot)
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.session_state.captured_image = cam_shot.getvalue()
+                    st.session_state.captured_name = cam_shot.name or "camera.jpg"
+                    st.session_state.predicted_label = result.get("label", "غير معروف")
+                    conf_value = result.get("confidence", 0) or 0
+                    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
+                    st.session_state.predicted_emoji = result.get("emoji", "❓")
+                    st.session_state.predicted_spelling = result.get("spelling", [])
+                    st.rerun()
+
+        with tab_upload:
+            uploaded = st.file_uploader(
+                "اختر صورة من جهازك 🖼️",
+                type=["jpg", "jpeg", "png", "webp"],
+                label_visibility="visible",
+                key="file_uploader",
+            )
+            if uploaded:
+                with st.spinner("🤖 جاري التعرف على الصورة..."):
+                    result = predict_image(uploaded)
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.session_state.captured_image = uploaded.getvalue()
+                    st.session_state.captured_name = uploaded.name
+                    st.session_state.predicted_label = result.get("label", "غير معروف")
+                    conf_value = result.get("confidence", 0) or 0
+                    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
+                    st.session_state.predicted_emoji = result.get("emoji", "❓")
+                    st.session_state.predicted_spelling = result.get("spelling", [])
+                    st.rerun()
 
     st.markdown("""
     <div class="nq-controls">
@@ -714,7 +781,7 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    tts_url = f"{API_URL}/tts?word={word}"
+    tts_url = f"{API_URL}/tts?word={quote(word)}"
     st.audio(tts_url)
 
     col1, col2, col3 = st.columns([1, 1, 1])
