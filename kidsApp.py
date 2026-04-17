@@ -115,6 +115,8 @@ def segment_image(image_source) -> dict:
             name = getattr(image_source, "name", "capture.jpg")
             data = image_source.getvalue()
             mime = getattr(image_source, "type", None) or "image/jpeg"
+        elif isinstance(image_source, tuple) and len(image_source) == 3:
+            name, data, mime = image_source
         elif isinstance(image_source, (bytes, bytearray)):
             name, data, mime = "capture.jpg", bytes(image_source), "image/jpeg"
         else:
@@ -653,61 +655,148 @@ def show_character_page():
 # Camera page
 # =============================
 def show_camera_page():
-    # Scope / viewfinder styling — glowing corner marks around the camera widget
+    # -------- Camera-page CSS (scope + restyled shutter + icon buttons) --------
     st.markdown("""
     <style>
-    .nq-scope-wrapper {
-      position: relative;
-      border-radius: 28px;
-      padding: 14px;
-      background: linear-gradient(135deg, rgba(123,111,212,0.12), rgba(232,111,160,0.12));
-      box-shadow: 0 0 0 3px rgba(123,111,212,0.35),
-                  0 0 32px 4px rgba(123,111,212,0.45),
-                  inset 0 0 30px rgba(255,255,255,0.25);
-      margin: 8px 0 18px;
-      animation: scopePulse 2.4s ease-in-out infinite;
+    /* ---------- Glowing scope frame ----------
+       We target the camera widget by its data-testid, and ALSO add our own
+       box-shadow glow with an ::after overlay that draws the corner marks,
+       so it doesn't matter how Streamlit nests internal divs. */
+    [data-testid="stCameraInput"] {
+        position: relative;
+        border-radius: 24px;
+        padding: 10px;
+        background: linear-gradient(135deg, rgba(123,111,212,0.10), rgba(232,111,160,0.10));
+        box-shadow: 0 0 0 3px rgba(123,111,212,0.40),
+                    0 0 36px 6px rgba(123,111,212,0.45);
+        animation: scopePulse 2.4s ease-in-out infinite;
     }
     @keyframes scopePulse {
-      0%, 100% { box-shadow: 0 0 0 3px rgba(123,111,212,0.35), 0 0 28px 3px rgba(123,111,212,0.40), inset 0 0 28px rgba(255,255,255,0.25); }
-      50%      { box-shadow: 0 0 0 3px rgba(232,111,160,0.50), 0 0 42px 6px rgba(232,111,160,0.55), inset 0 0 30px rgba(255,255,255,0.30); }
+        0%, 100% {
+            box-shadow: 0 0 0 3px rgba(123,111,212,0.40),
+                        0 0 30px 4px rgba(123,111,212,0.45);
+        }
+        50% {
+            box-shadow: 0 0 0 3px rgba(232,111,160,0.55),
+                        0 0 46px 8px rgba(232,111,160,0.55);
+        }
     }
-    /* Corner marks */
-    .nq-scope-wrapper::before,
-    .nq-scope-wrapper::after,
-    .nq-scope-corner-bl,
-    .nq-scope-corner-br {
-      content: "";
-      position: absolute;
-      width: 42px;
-      height: 42px;
-      border: 4px solid var(--purple);
-      pointer-events: none;
-      z-index: 3;
+    /* Four corner marks, drawn on top of the widget */
+    [data-testid="stCameraInput"]::before,
+    [data-testid="stCameraInput"]::after {
+        content: "";
+        position: absolute;
+        width: 44px; height: 44px;
+        border: 4px solid #7b6fd4;
+        pointer-events: none;
+        z-index: 10;
     }
-    .nq-scope-wrapper::before {
-      top: 8px; left: 8px;
-      border-right: none; border-bottom: none;
-      border-top-left-radius: 18px;
+    [data-testid="stCameraInput"]::before {
+        top: 4px; left: 4px;
+        border-right: none; border-bottom: none;
+        border-top-left-radius: 18px;
     }
-    .nq-scope-wrapper::after {
-      top: 8px; right: 8px;
-      border-left: none; border-bottom: none;
-      border-top-right-radius: 18px;
+    [data-testid="stCameraInput"]::after {
+        top: 4px; right: 4px;
+        border-left: none; border-bottom: none;
+        border-top-right-radius: 18px;
     }
-    .nq-scope-corner-bl {
-      bottom: 8px; left: 8px;
-      border-right: none; border-top: none;
-      border-bottom-left-radius: 18px;
+    /* Two bottom corners drawn via a sibling we inject */
+    .nq-scope-floor {
+        position: relative;
+        height: 0;
+        margin-top: -56px;
+        pointer-events: none;
+        z-index: 11;
     }
-    .nq-scope-corner-br {
-      bottom: 8px; right: 8px;
-      border-left: none; border-top: none;
-      border-bottom-right-radius: 18px;
+    .nq-scope-floor::before,
+    .nq-scope-floor::after {
+        content: "";
+        position: absolute;
+        width: 44px; height: 44px;
+        border: 4px solid #7b6fd4;
     }
-    /* Round the camera widget so it sits nicely inside the scope */
-    .nq-scope-wrapper [data-testid="stCameraInput"] video,
-    .nq-scope-wrapper [data-testid="stCameraInput"] img {
-      border-radius: 16px !important;
+    .nq-scope-floor::before {
+        bottom: 0; left: 4px;
+        border-right: none; border-top: none;
+        border-bottom-left-radius: 18px;
+    }
+    .nq-scope-floor::after {
+        bottom: 0; right: 4px;
+        border-left: none; border-top: none;
+        border-bottom-right-radius: 18px;
+    }
+    /* Round the video + captured preview inside the scope */
+    [data-testid="stCameraInput"] video,
+    [data-testid="stCameraInput"] img {
+        border-radius: 16px !important;
+    }
+
+    /* ---------- Restyle Streamlit's native shutter button ----------
+       Streamlit draws a button immediately below the video inside stCameraInput.
+       We make it a big, round, purple shutter to match the kid-friendly theme. */
+    [data-testid="stCameraInput"] button {
+        width: 96px !important;
+        height: 96px !important;
+        border-radius: 50% !important;
+        border: 6px solid #ffffff !important;
+        background: linear-gradient(135deg, #7b6fd4, #e86fa0) !important;
+        color: #ffffff !important;
+        font-size: 0 !important;   /* hide the default text */
+        padding: 0 !important;
+        margin: 16px auto !important;
+        display: block !important;
+        box-shadow: 0 8px 24px rgba(123,111,212,0.45),
+                    0 0 0 4px rgba(123,111,212,0.20) !important;
+        transition: transform 0.15s ease, box-shadow 0.2s ease !important;
+        position: relative;
+    }
+    [data-testid="stCameraInput"] button:hover {
+        transform: scale(1.06) !important;
+        box-shadow: 0 10px 28px rgba(232,111,160,0.55),
+                    0 0 0 6px rgba(232,111,160,0.25) !important;
+    }
+    [data-testid="stCameraInput"] button:active {
+        transform: scale(0.94) !important;
+    }
+    /* Put a camera icon inside the shutter */
+    [data-testid="stCameraInput"] button::before {
+        content: "📸";
+        font-size: 36px;
+        line-height: 1;
+    }
+
+    /* ---------- Side icon buttons (left = upload, right = retake) ---------- */
+    .nq-side-btn button {
+        width: 64px !important;
+        height: 64px !important;
+        border-radius: 50% !important;
+        border: 3px solid #d8d3f3 !important;
+        background: #ffffff !important;
+        color: #18264a !important;
+        font-size: 28px !important;
+        padding: 0 !important;
+        box-shadow: 0 4px 14px rgba(91,71,180,0.15) !important;
+        transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+    }
+    .nq-side-btn button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(91,71,180,0.25) !important;
+        border-color: #7b6fd4 !important;
+    }
+    /* Hide the default st.file_uploader drop-zone but keep it clickable via label */
+    .nq-hidden-uploader [data-testid="stFileUploaderDropzone"] {
+        display: none !important;
+    }
+    .nq-hidden-uploader [data-testid="stFileUploader"] label,
+    .nq-hidden-uploader [data-testid="stFileUploader"] small {
+        display: none !important;
+    }
+    .nq-hidden-uploader {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 0;
+        overflow: visible;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -720,7 +809,10 @@ def show_camera_page():
     """, unsafe_allow_html=True)
 
     captured = st.session_state.get("captured_image")
-    instr = "رائع! 🎉 هل تريد تعلّم اسم هذا الشيء؟" if captured else "ضع الشيء في منتصف الكادر المضيء ثم التقط الصورة"
+    instr = (
+        "رائع! 🎉 هل تريد تعلّم اسم هذا الشيء؟" if captured
+        else "ضع الشيء في منتصف الكادر المضيء ثم اضغطي على الزر البنفسجي"
+    )
 
     st.markdown(f"""
     <div class="nq-instruction">
@@ -729,38 +821,12 @@ def show_camera_page():
     </div>
     """, unsafe_allow_html=True)
 
+    # ---------- When we already have a photo, just show it ----------
     if captured:
         st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        # Camera inside the glowing scope frame
-        st.markdown('<div class="nq-scope-wrapper">'
-                    '<div class="nq-scope-corner-bl"></div>'
-                    '<div class="nq-scope-corner-br"></div>', unsafe_allow_html=True)
-        cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-        if cam_shot is not None:
-            # Crop to centered square (matches the visual scope guide)
-            cropped_bytes = _center_square_crop(cam_shot.getvalue())
-            with st.spinner("🤖 جاري التعرف على الصورة..."):
-                result = segment_image(("capture.jpg", cropped_bytes, "image/jpeg"))
-            if "error" in result:
-                st.error(result["error"])
-            else:
-                apply_segmentation_result(cropped_bytes, "capture.jpg", result)
-                st.rerun()
-
-    st.markdown("""
-    <div class="nq-controls">
-      <div class="icon-btn">🔄</div>
-      <div class="shutter"><div class="shutter-inner"></div></div>
-      <div class="icon-btn">🖼️</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    if captured:
         col1, col2, col3 = st.columns([1.1, 1.9, 1])
         with col1:
             if st.button("⬅ رجوع", use_container_width=True, key="camera_back"):
@@ -769,18 +835,79 @@ def show_camera_page():
             if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
                 go_to_page("results")
         with col3:
-            if st.button("↩️ إعادة", use_container_width=True, key="retake"):
+            if st.button("↩️ إعادة", use_container_width=True, key="retake_after"):
                 reset_prediction()
                 st.rerun()
-    else:
-        st.markdown("""
-        <div class="nq-learn-btn" style="opacity:0.45">
-          <div class="nq-learn-icon">✨</div>
-          تعلّم هذه الكلمة!
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
-            go_to_page("characters")
+        return
+
+    # ---------- Live camera view with scope ----------
+    cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
+    # Inject the two bottom corner marks right after the widget
+    st.markdown('<div class="nq-scope-floor"></div>', unsafe_allow_html=True)
+
+    # ---------- Three control buttons: upload | (native shutter above) | retake ----------
+    left_col, mid_col, right_col = st.columns([1, 1, 1])
+
+    # Left: real upload button (hidden file_uploader triggered by its label)
+    with left_col:
+        st.markdown('<div class="nq-side-btn">', unsafe_allow_html=True)
+        # We use a toggle to show/hide the uploader. Click the icon → reveal the uploader.
+        if "show_uploader" not in st.session_state:
+            st.session_state.show_uploader = False
+        if st.button("🖼️", key="upload_toggle", help="رفع صورة من جهازك"):
+            st.session_state.show_uploader = not st.session_state.show_uploader
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with mid_col:
+        st.markdown(
+            '<div style="text-align:center;color:#6b7690;font-weight:800;margin-top:8px">'
+            'اضغطي على الزر 📸 في الأعلى</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Right: retake — clears the current camera input and starts fresh
+    with right_col:
+        st.markdown('<div class="nq-side-btn">', unsafe_allow_html=True)
+        if st.button("🔄", key="retake_live", help="إعادة الالتقاط"):
+            # Bump the key to force st.camera_input to reset
+            st.session_state.pop("cam_input", None)
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Show the file_uploader only when requested
+    if st.session_state.get("show_uploader"):
+        uploaded = st.file_uploader(
+            "اختاري صورة من جهازك",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="file_uploader_live",
+        )
+        if uploaded is not None:
+            raw = uploaded.getvalue()
+            cropped = _center_square_crop(raw)
+            with st.spinner("🤖 جاري التعرف على الصورة..."):
+                result = segment_image(("upload.jpg", cropped, "image/jpeg"))
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                apply_segmentation_result(cropped, uploaded.name, result)
+                st.session_state.show_uploader = False
+                st.rerun()
+
+    # Handle camera capture
+    if cam_shot is not None:
+        cropped_bytes = _center_square_crop(cam_shot.getvalue())
+        with st.spinner("🤖 جاري التعرف على الصورة..."):
+            result = segment_image(("capture.jpg", cropped_bytes, "image/jpeg"))
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            apply_segmentation_result(cropped_bytes, "capture.jpg", result)
+            st.rerun()
+
+    # Back button at the bottom
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
+        go_to_page("characters")
 
 # =============================
 # Results page
