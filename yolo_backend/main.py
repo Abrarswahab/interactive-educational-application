@@ -93,11 +93,10 @@ def shape_arabic(text: str) -> str:
 
 
 @lru_cache(maxsize=1024)
-def synth_audio_b64(text: str) -> Optional[str]:
+def synth_audio_bytes(text: str) -> Optional[bytes]:
     """
-    Use Google Translate's free TTS endpoint to synthesize Arabic speech for a word or
-    single letter. Returns a base64-encoded MP3 as a data: URI, or None on failure.
-    Cached aggressively so repeated words / letters don't re-fetch.
+    Fetch raw MP3 bytes from Google Translate's free TTS. Cached by text.
+    Returns None on failure.
     """
     if not text or not text.strip():
         return None
@@ -108,12 +107,24 @@ def synth_audio_b64(text: str) -> Optional[str]:
         )
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            mp3_bytes = resp.read()
-        encoded = base64.b64encode(mp3_bytes).decode("ascii")
-        return f"data:audio/mp3;base64,{encoded}"
+            return resp.read()
     except Exception as e:
         log.warning(f"TTS failed for '{text}': {e}")
         return None
+
+
+def bytes_to_data_uri(mp3_bytes: Optional[bytes]) -> Optional[str]:
+    """Wrap raw MP3 bytes into a data: URI Streamlit can play."""
+    if not mp3_bytes:
+        return None
+    encoded = base64.b64encode(mp3_bytes).decode("ascii")
+    return f"data:audio/mp3;base64,{encoded}"
+
+
+@lru_cache(maxsize=1024)
+def synth_audio_b64(text: str) -> Optional[str]:
+    """Same as synth_audio_bytes but returns a data URI (used for per-letter and word audio)."""
+    return bytes_to_data_uri(synth_audio_bytes(text))
 
 
 def annotate_image(results, image: Image.Image, ar_label: str, coverage_pct: float) -> Image.Image:
@@ -155,6 +166,7 @@ class SegmentResponse(BaseModel):
     annotated_image: str
     audio_word: Optional[str]
     audio_letters: list
+    audio_combined: Optional[str]
 
 
 # ----------------------------------------------------------------------
@@ -229,12 +241,27 @@ async def segment(file: UploadFile = File(...)):
     annotated = annotate_image(results, img, label_ar, coverage_pct)
     annotated_b64 = image_to_b64(annotated)
 
-    # ---- Generate audio (word + each letter) -----------------------------
-    audio_word = synth_audio_b64(label_ar)
+    # ---- Generate audio (word + each letter + combined sequence) ---------
+    word_bytes = synth_audio_bytes(label_ar)
+    letter_bytes = [synth_audio_bytes(ch) for ch in letters]
+
+    audio_word = bytes_to_data_uri(word_bytes)
     audio_letters = [
-        {"letter": ch, "audio": synth_audio_b64(ch)}
-        for ch in letters
+        {"letter": ch, "audio": bytes_to_data_uri(b)}
+        for ch, b in zip(letters, letter_bytes)
     ]
+
+    # Combined sequence: word → each letter in order → word again.
+    # MP3 frames are concatenable — just glue the bytes together.
+    combined_parts = []
+    if word_bytes:
+        combined_parts.append(word_bytes)
+    for b in letter_bytes:
+        if b:
+            combined_parts.append(b)
+    if word_bytes:
+        combined_parts.append(word_bytes)
+    audio_combined = bytes_to_data_uri(b"".join(combined_parts)) if combined_parts else None
 
     log.info(
         f"✅ {label_en} -> {label_ar} | conf={top_conf:.2f} | "
@@ -250,4 +277,5 @@ async def segment(file: UploadFile = File(...)):
         annotated_image=annotated_b64,
         audio_word=audio_word,
         audio_letters=audio_letters,
+        audio_combined=audio_combined,
     )

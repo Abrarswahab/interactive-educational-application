@@ -49,6 +49,8 @@ if "audio_word" not in st.session_state:
     st.session_state.audio_word = None              # data URI string
 if "audio_letters" not in st.session_state:
     st.session_state.audio_letters = []             # list of {letter, audio}
+if "audio_combined" not in st.session_state:
+    st.session_state.audio_combined = None          # word → spelling → word, as one track
 
 # =============================
 # API helpers
@@ -61,6 +63,29 @@ def _decode_data_uri(data_uri: str) -> bytes:
         return base64.b64decode(data_uri.split(",", 1)[1])
     except Exception:
         return b""
+
+
+def _center_square_crop(image_bytes: bytes, padding_ratio: float = 0.0) -> bytes:
+    """
+    Crop the captured image to a centered square matching the on-screen scope guide.
+    padding_ratio (0.0–0.3): shrink the crop a bit inside the square to tighten the frame.
+    Returns JPEG bytes. Falls back to the original if PIL fails.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        w, h = img.size
+        side = min(w, h)
+        # Optional inner padding so the crop matches a slightly smaller scope
+        if padding_ratio > 0:
+            side = int(side * (1.0 - padding_ratio))
+        left = (w - side) // 2
+        top = (h - side) // 2
+        cropped = img.crop((left, top, left + side, top + side))
+        buf = io.BytesIO()
+        cropped.save(buf, format="JPEG", quality=92)
+        return buf.getvalue()
+    except Exception:
+        return image_bytes
 
 
 def check_api_health() -> dict:
@@ -127,6 +152,7 @@ def apply_segmentation_result(source_bytes: bytes, source_name: str, result: dic
     st.session_state.predicted_spelling = result.get("spelling", [])
     st.session_state.audio_word = result.get("audio_word")
     st.session_state.audio_letters = result.get("audio_letters", [])
+    st.session_state.audio_combined = result.get("audio_combined")
 
 
 def reset_prediction():
@@ -140,6 +166,7 @@ def reset_prediction():
     st.session_state.predicted_spelling = []
     st.session_state.audio_word = None
     st.session_state.audio_letters = []
+    st.session_state.audio_combined = None
 
 # =============================
 # Shared CSS
@@ -626,16 +653,74 @@ def show_character_page():
 # Camera page
 # =============================
 def show_camera_page():
+    # Scope / viewfinder styling — glowing corner marks around the camera widget
+    st.markdown("""
+    <style>
+    .nq-scope-wrapper {
+      position: relative;
+      border-radius: 28px;
+      padding: 14px;
+      background: linear-gradient(135deg, rgba(123,111,212,0.12), rgba(232,111,160,0.12));
+      box-shadow: 0 0 0 3px rgba(123,111,212,0.35),
+                  0 0 32px 4px rgba(123,111,212,0.45),
+                  inset 0 0 30px rgba(255,255,255,0.25);
+      margin: 8px 0 18px;
+      animation: scopePulse 2.4s ease-in-out infinite;
+    }
+    @keyframes scopePulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(123,111,212,0.35), 0 0 28px 3px rgba(123,111,212,0.40), inset 0 0 28px rgba(255,255,255,0.25); }
+      50%      { box-shadow: 0 0 0 3px rgba(232,111,160,0.50), 0 0 42px 6px rgba(232,111,160,0.55), inset 0 0 30px rgba(255,255,255,0.30); }
+    }
+    /* Corner marks */
+    .nq-scope-wrapper::before,
+    .nq-scope-wrapper::after,
+    .nq-scope-corner-bl,
+    .nq-scope-corner-br {
+      content: "";
+      position: absolute;
+      width: 42px;
+      height: 42px;
+      border: 4px solid var(--purple);
+      pointer-events: none;
+      z-index: 3;
+    }
+    .nq-scope-wrapper::before {
+      top: 8px; left: 8px;
+      border-right: none; border-bottom: none;
+      border-top-left-radius: 18px;
+    }
+    .nq-scope-wrapper::after {
+      top: 8px; right: 8px;
+      border-left: none; border-bottom: none;
+      border-top-right-radius: 18px;
+    }
+    .nq-scope-corner-bl {
+      bottom: 8px; left: 8px;
+      border-right: none; border-top: none;
+      border-bottom-left-radius: 18px;
+    }
+    .nq-scope-corner-br {
+      bottom: 8px; right: 8px;
+      border-left: none; border-top: none;
+      border-bottom-right-radius: 18px;
+    }
+    /* Round the camera widget so it sits nicely inside the scope */
+    .nq-scope-wrapper [data-testid="stCameraInput"] video,
+    .nq-scope-wrapper [data-testid="stCameraInput"] img {
+      border-radius: 16px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("""
     <div class="nq-header">
       <div class="nq-avatar">🐥</div>
       <span class="nq-title">📸 وقت التصوير!</span>
-      <div class="nq-back">›</div>
     </div>
     """, unsafe_allow_html=True)
 
     captured = st.session_state.get("captured_image")
-    instr = "رائع! 🎉 هل تريد تعلّم اسم هذا الشيء؟" if captured else "ضع الشيء داخل المربع المضيء ثم التقط الصورة"
+    instr = "رائع! 🎉 هل تريد تعلّم اسم هذا الشيء؟" if captured else "ضع الشيء في منتصف الكادر المضيء ثم التقط الصورة"
 
     st.markdown(f"""
     <div class="nq-instruction">
@@ -649,42 +734,23 @@ def show_camera_page():
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     else:
-        # API health banner
-        health = check_api_health()
-        if health["ok"]:
-            st.success(f"✅ الخادم متصل")
-        else:
-            st.error(f"⚠️ {health['error']}  \nالخادم: {API_URL}")
+        # Camera inside the glowing scope frame
+        st.markdown('<div class="nq-scope-wrapper">'
+                    '<div class="nq-scope-corner-bl"></div>'
+                    '<div class="nq-scope-corner-br"></div>', unsafe_allow_html=True)
+        cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        tab_cam, tab_upload = st.tabs(["📷 الكاميرا", "🖼️ رفع صورة"])
-
-        with tab_cam:
-            st.caption("اسمحي للمتصفح بالوصول إلى الكاميرا ثم اضغطي على زر الالتقاط.")
-            cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
-            if cam_shot is not None:
-                with st.spinner("🤖 جاري التعرف على الصورة..."):
-                    result = segment_image(cam_shot)
-                if "error" in result:
-                    st.error(result["error"])
-                else:
-                    apply_segmentation_result(cam_shot.getvalue(), cam_shot.name or "camera.jpg", result)
-                    st.rerun()
-
-        with tab_upload:
-            uploaded = st.file_uploader(
-                "اختر صورة من جهازك 🖼️",
-                type=["jpg", "jpeg", "png", "webp"],
-                label_visibility="visible",
-                key="file_uploader",
-            )
-            if uploaded:
-                with st.spinner("🤖 جاري التعرف على الصورة..."):
-                    result = segment_image(uploaded)
-                if "error" in result:
-                    st.error(result["error"])
-                else:
-                    apply_segmentation_result(uploaded.getvalue(), uploaded.name, result)
-                    st.rerun()
+        if cam_shot is not None:
+            # Crop to centered square (matches the visual scope guide)
+            cropped_bytes = _center_square_crop(cam_shot.getvalue())
+            with st.spinner("🤖 جاري التعرف على الصورة..."):
+                result = segment_image(("capture.jpg", cropped_bytes, "image/jpeg"))
+            if "error" in result:
+                st.error(result["error"])
+            else:
+                apply_segmentation_result(cropped_bytes, "capture.jpg", result)
+                st.rerun()
 
     st.markdown("""
     <div class="nq-controls">
@@ -738,6 +804,7 @@ def show_results_page():
     conf = st.session_state.get("predicted_conf", "0٪")
     coverage = st.session_state.get("predicted_coverage", 0.0)
     audio_word = st.session_state.get("audio_word")
+    audio_combined = st.session_state.get("audio_combined")
     audio_letters = st.session_state.get("audio_letters", [])
 
     # --- Image card: toggle between the original and the segmented version
@@ -771,9 +838,10 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Word audio (from the API's bundled TTS)
-    if audio_word:
-        st.audio(_decode_data_uri(audio_word), format="audio/mp3")
+    # --- Main audio: word → letters → word, as one track
+    main_audio = audio_combined or audio_word
+    if main_audio:
+        st.audio(_decode_data_uri(main_audio), format="audio/mp3")
     else:
         st.info("🔇 لم يتوفر صوت لهذه الكلمة")
 
