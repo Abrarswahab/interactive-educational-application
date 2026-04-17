@@ -170,8 +170,8 @@ streamlit run kidsapp.py
 
 - Lana Aljuaid
 - Abdularhmn
-Abrar
-Mohamed 
+- Abrar
+- Mohamed 
 ---
 
 ## 🏷️ Project Name
