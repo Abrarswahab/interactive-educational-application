@@ -67,19 +67,18 @@ def _decode_data_uri(data_uri: str) -> bytes:
         return b""
 
 
-def _center_square_crop(image_bytes: bytes, padding_ratio: float = 0.0) -> bytes:
+def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
     """
-    Crop the captured image to a centered square matching the on-screen scope guide.
-    padding_ratio (0.0–0.3): shrink the crop a bit inside the square to tighten the frame.
+    Crop the captured image to a centered square matching the on-screen guide.
+    Mirrors the reference HTML: the guide square covers `guide_ratio` (default 62%)
+    of the shorter frame side, centered. This is what the user visually frames
+    inside the pulsing purple square, so we cut exactly that out.
     Returns JPEG bytes. Falls back to the original if PIL fails.
     """
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
-        side = min(w, h)
-        # Optional inner padding so the crop matches a slightly smaller scope
-        if padding_ratio > 0:
-            side = int(side * (1.0 - padding_ratio))
+        side = int(min(w, h) * guide_ratio)
         left = (w - side) // 2
         top = (h - side) // 2
         cropped = img.crop((left, top, left + side, top + side))
@@ -658,96 +657,158 @@ def show_character_page():
 # Camera page
 # =============================
 def show_camera_page():
-    # -------- Camera-page CSS --------
+    # ---------- Camera-page CSS (ported from the reference HTML) ----------
     st.markdown("""
     <style>
-    /* ---------- Scope glow + corners TARGET ONLY THE VIDEO ----------
-       Streamlit renders the live feed inside <video>. We hang the scope
-       off the video's direct parent so the corners land on the video edges,
-       not on the padding/shutter area below. */
-    [data-testid="stCameraInput"] > div {
+    /* The whole camera input container becomes our "camera-frame" */
+    [data-testid="stCameraInput"] {
         position: relative;
+        border-radius: 28px;
+        background: #1a1a2e;
+        box-shadow: 0 8px 32px rgba(91,71,180,0.30);
+        overflow: visible;
+        max-width: 420px;
+        margin: 0 auto 18px;
     }
+    /* Round + fill the video / captured preview */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
-        border-radius: 18px !important;
-        outline: 3px solid rgba(123,111,212,0.55);
-        outline-offset: 0;
-        box-shadow: 0 0 28px 4px rgba(123,111,212,0.45);
-        animation: scopePulse 2.4s ease-in-out infinite;
+        border-radius: 28px !important;
         width: 100% !important;
+        object-fit: cover !important;
+        display: block;
     }
-    @keyframes scopePulse {
-        0%, 100% {
-            outline-color: rgba(123,111,212,0.55);
-            box-shadow: 0 0 28px 4px rgba(123,111,212,0.45);
-        }
-        50% {
-            outline-color: rgba(232,111,160,0.70);
-            box-shadow: 0 0 42px 6px rgba(232,111,160,0.55);
-        }
-    }
-    /* Four corner marks drawn over the video element's parent */
-    [data-testid="stCameraInput"] > div > div:has(video)::before,
-    [data-testid="stCameraInput"] > div > div:has(video)::after,
-    [data-testid="stCameraInput"] > div > div:has(img)::before,
-    [data-testid="stCameraInput"] > div > div:has(img)::after {
-        content: "";
-        position: absolute;
-        width: 42px; height: 42px;
-        border: 4px solid #7b6fd4;
-        pointer-events: none;
-        z-index: 10;
-    }
-    [data-testid="stCameraInput"] > div > div:has(video)::before,
-    [data-testid="stCameraInput"] > div > div:has(img)::before {
-        top: 6px; left: 6px;
-        border-right: none; border-bottom: none;
-        border-top-left-radius: 14px;
-    }
-    [data-testid="stCameraInput"] > div > div:has(video)::after,
-    [data-testid="stCameraInput"] > div > div:has(img)::after {
-        top: 6px; right: 6px;
-        border-left: none; border-bottom: none;
-        border-top-right-radius: 14px;
-    }
-    /* Ensure the video's parent is positioned so ::before/::after anchor correctly */
-    [data-testid="stCameraInput"] > div > div:has(video),
-    [data-testid="stCameraInput"] > div > div:has(img) {
+
+    /* Parent of the video needs to be positioned so the guide anchors to it */
+    [data-testid="stCameraInput"] > div > div:has(> video),
+    [data-testid="stCameraInput"] > div > div:has(> img) {
         position: relative !important;
     }
 
-    /* ---------- Restyle Streamlit's native shutter into a big purple circle ---------- */
-    [data-testid="stCameraInput"] button {
-        width: 96px !important;
-        height: 96px !important;
-        border-radius: 50% !important;
-        border: 6px solid #ffffff !important;
-        background: linear-gradient(135deg, #7b6fd4, #e86fa0) !important;
-        color: #ffffff !important;
-        font-size: 0 !important;
-        padding: 0 !important;
-        margin: 18px auto !important;
-        display: block !important;
-        box-shadow: 0 8px 24px rgba(123,111,212,0.45),
-                    0 0 0 4px rgba(123,111,212,0.20) !important;
-        transition: transform 0.15s ease, box-shadow 0.2s ease !important;
+    /* ---- Four corner marks on the frame edges ---- */
+    [data-testid="stCameraInput"] > div > div:has(> video)::before,
+    [data-testid="stCameraInput"] > div > div:has(> video)::after,
+    [data-testid="stCameraInput"] > div > div:has(> img)::before,
+    [data-testid="stCameraInput"] > div > div:has(> img)::after {
+        content: "";
+        position: absolute;
+        width: 20px; height: 20px;
+        border: 2px solid rgba(255,255,255,0.55);
+        pointer-events: none;
+        z-index: 3;
     }
-    [data-testid="stCameraInput"] button:hover {
-        transform: scale(1.06) !important;
-        box-shadow: 0 10px 28px rgba(232,111,160,0.55),
-                    0 0 0 6px rgba(232,111,160,0.25) !important;
+    [data-testid="stCameraInput"] > div > div:has(> video)::before,
+    [data-testid="stCameraInput"] > div > div:has(> img)::before {
+        top: 12px; left: 12px;
+        border-right: none; border-bottom: none;
+        border-top-left-radius: 4px;
     }
-    [data-testid="stCameraInput"] button:active {
-        transform: scale(0.94) !important;
-    }
-    [data-testid="stCameraInput"] button::before {
-        content: "📸";
-        font-size: 36px;
-        line-height: 1;
+    [data-testid="stCameraInput"] > div > div:has(> video)::after,
+    [data-testid="stCameraInput"] > div > div:has(> img)::after {
+        top: 12px; right: 12px;
+        border-left: none; border-bottom: none;
+        border-top-right-radius: 4px;
     }
 
-    /* ---------- Loader animation (during API call) ---------- */
+    /* ---- 62% centered pulsing guide square (the one the crop matches) ---- */
+    [data-testid="stCameraInput"] > div > div:has(> video) > *:first-child::before {
+        /* fake — we add the guide via an injected div below for reliability */
+    }
+    .nq-guide-sq {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 62%;
+        aspect-ratio: 1;
+        border-radius: 20px;
+        border: 2.5px solid rgba(200,185,255,0.9);
+        pointer-events: none;
+        z-index: 4;
+        animation: nq-guide-pulse 2.2s ease-in-out infinite;
+    }
+    .nq-guide-sq::after {
+        content: "ضع الشيء هنا";
+        position: absolute;
+        bottom: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        font-weight: 600;
+        color: rgba(210,200,255,0.9);
+        white-space: nowrap;
+        font-family: 'Tajawal', sans-serif;
+    }
+    @keyframes nq-guide-pulse {
+        0%,100% {
+            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
+                        0 0 18px 4px rgba(160,140,255,0.35),
+                        inset 0 0 18px 2px rgba(160,140,255,0.10);
+            border-color: rgba(200,185,255,0.85);
+        }
+        50% {
+            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
+                        0 0 32px 10px rgba(160,140,255,0.55),
+                        inset 0 0 24px 6px rgba(160,140,255,0.20);
+            border-color: rgba(220,210,255,1);
+        }
+    }
+
+    /* ---- Scan line sweep inside the guide area ---- */
+    .nq-scan-line {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 62%;
+        aspect-ratio: 1;
+        border-radius: 20px;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 3;
+    }
+    .nq-scan-line::after {
+        content: "";
+        position: absolute;
+        top: -40%; left: 0; right: 0;
+        height: 40%;
+        background: linear-gradient(transparent, rgba(180,160,255,0.18), transparent);
+        animation: nq-scan 2.8s ease-in-out infinite;
+    }
+    @keyframes nq-scan {
+        0%   { top: -40%; }
+        100% { top: 110%; }
+    }
+
+    /* ---------- Big purple shutter (Streamlit's native capture button) ---------- */
+    [data-testid="stCameraInput"] button {
+        width: 72px !important;
+        height: 72px !important;
+        border-radius: 50% !important;
+        border: 4px solid #a89de8 !important;
+        background: #ffffff !important;
+        color: transparent !important;
+        font-size: 0 !important;
+        padding: 0 !important;
+        margin: 16px auto 4px !important;
+        display: block !important;
+        box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
+        transition: transform 0.12s ease !important;
+        position: relative !important;
+    }
+    [data-testid="stCameraInput"] button:active {
+        transform: scale(0.92) !important;
+    }
+    /* Inner purple gradient dot */
+    [data-testid="stCameraInput"] button::before {
+        content: "";
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 52px; height: 52px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
+    }
+
+    /* ---------- Loader card (during API call) ---------- */
     .nq-loader-card {
         background: #ffffff;
         border-radius: 28px;
@@ -759,10 +820,10 @@ def show_camera_page():
     }
     .nq-loader-emoji {
         font-size: 72px;
-        animation: loaderBounce 1.4s ease-in-out infinite;
+        animation: nq-loader-bounce 1.4s ease-in-out infinite;
         display: inline-block;
     }
-    @keyframes loaderBounce {
+    @keyframes nq-loader-bounce {
         0%, 100% { transform: translateY(0) rotate(-6deg); }
         50%      { transform: translateY(-12px) rotate(6deg); }
     }
@@ -777,9 +838,9 @@ def show_camera_page():
         display: inline-block;
         width: 24px;
         text-align: left;
-        animation: loaderDots 1.2s steps(4, end) infinite;
+        animation: nq-loader-dots 1.2s steps(4, end) infinite;
     }
-    @keyframes loaderDots {
+    @keyframes nq-loader-dots {
         0%   { content: "";    }
         25%  { content: ".";   }
         50%  { content: "..";  }
@@ -800,18 +861,45 @@ def show_camera_page():
         content: "";
         position: absolute;
         left: -40%;
-        top: 0;
-        bottom: 0;
+        top: 0; bottom: 0;
         width: 40%;
         background: linear-gradient(90deg, #7b6fd4, #e86fa0);
         border-radius: 999px;
-        animation: loaderSlide 1.6s ease-in-out infinite;
+        animation: nq-loader-slide 1.6s ease-in-out infinite;
     }
-    @keyframes loaderSlide {
+    @keyframes nq-loader-slide {
         0%   { left: -40%; }
         100% { left: 100%; }
     }
     </style>
+
+    <!-- JS: inject the guide square + scan line ONCE the camera DOM is present.
+         Runs on every render; bails if elements already exist. -->
+    <script>
+    (function () {
+        function injectGuide() {
+            const cam = window.parent.document.querySelector('[data-testid="stCameraInput"]');
+            if (!cam) return false;
+            // Find the video (live) OR captured img element's parent
+            const mediaParent = cam.querySelector('div:has(> video), div:has(> img)');
+            if (!mediaParent) return false;
+            // If we've already injected, skip
+            if (mediaParent.querySelector('.nq-guide-sq')) return true;
+            const guide = document.createElement('div');
+            guide.className = 'nq-guide-sq';
+            const scan  = document.createElement('div');
+            scan.className  = 'nq-scan-line';
+            mediaParent.appendChild(scan);
+            mediaParent.appendChild(guide);
+            return true;
+        }
+        // Try immediately, then retry a few times in case Streamlit hasn't rendered yet
+        let tries = 0;
+        const timer = setInterval(function () {
+            if (injectGuide() || ++tries > 20) clearInterval(timer);
+        }, 120);
+    })();
+    </script>
     """, unsafe_allow_html=True)
 
     st.markdown("""
@@ -822,15 +910,15 @@ def show_camera_page():
     """, unsafe_allow_html=True)
 
     # ========================================================================
-    # STATE MACHINE
-    #   pending_capture = bytes → show confirm screen (✅ / 🔄)
-    #   captured_image  = bytes → photo already processed by API, show result
-    #   neither         → show live camera
+    # STATE MACHINE:
+    #   pending_capture (bytes) → confirm screen (✅ / 🔄)
+    #   captured_image  (bytes) → photo processed, show result
+    #   neither                 → live camera
     # ========================================================================
     captured = st.session_state.get("captured_image")
     pending = st.session_state.get("pending_capture")
 
-    # --------- State 3: photo confirmed & processed ---------
+    # --------- State 3: photo confirmed & processed by API ---------
     if captured:
         st.markdown('<div class="nq-instruction">'
                     '<span class="nq-instruction-icon">🎉</span>'
@@ -854,7 +942,7 @@ def show_camera_page():
                 st.rerun()
         return
 
-    # --------- State 2: photo taken, waiting for user confirmation ---------
+    # --------- State 2: photo taken, awaiting confirmation ---------
     if pending:
         st.markdown('<div class="nq-instruction">'
                     '<span class="nq-instruction-icon">👀</span>'
@@ -880,7 +968,6 @@ def show_camera_page():
                 st.rerun()
 
         if confirm_clicked:
-            # Show the fancy loader, call API, then navigate to results
             loader_placeholder = st.empty()
             loader_placeholder.markdown("""
             <div class="nq-loader-card">
@@ -895,7 +982,6 @@ def show_camera_page():
 
             if "error" in result:
                 st.error(result["error"])
-                # Keep the pending photo so the user can retry or retake
             else:
                 apply_segmentation_result(pending, "capture.jpg", result)
                 st.session_state.pending_capture = None
@@ -907,17 +993,16 @@ def show_camera_page():
     st.markdown(
         '<div class="nq-instruction">'
         '<span class="nq-instruction-icon">🎯</span>'
-        '<p class="nq-instruction-text">ضع الشيء في منتصف الكادر ثم اضغطي على الزر البنفسجي</p>'
+        '<p class="nq-instruction-text">ضع الشيء داخل المربع المضيء ثم التقط الصورة</p>'
         '</div>',
         unsafe_allow_html=True,
     )
 
     cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
 
-    # As soon as the user snaps a photo, move it to pending_capture and rerun
-    # so they see the confirm screen instead of the live camera.
+    # As soon as a snap arrives, crop to 62% center-square and stash as pending
     if cam_shot is not None:
-        cropped_bytes = _center_square_crop(cam_shot.getvalue())
+        cropped_bytes = _center_square_crop(cam_shot.getvalue())  # 62% default
         st.session_state.pending_capture = cropped_bytes
         st.rerun()
 
