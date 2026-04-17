@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>نطوق - تعلّم الكلمة</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #eeeaf8; --white: #ffffff;
+    --purple: #7b6fd4; --purple-light: #a89de8; --purple-dark: #5a4fb0;
+    --btn-blue: #5b8de8; --btn-blue-dark: #3d6fd4;
+    --btn-pink: #e86fa0; --btn-pink-dark: #c9507f;
+    --text-dark: #2d2557; --text-mid: #6b62a8;
+  }
+  html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg); font-family: 'Tajawal', sans-serif; color: var(--text-dark); }
+  .page { height: 100dvh; width: 100%; display: flex; flex-direction: column; align-items: center; position: relative; overflow: hidden; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(45px); opacity: 0.32; pointer-events: none; }
+  .blob-1 { width: 240px; height: 240px; background: #c3b8f5; top: -70px; left: -60px; }
+  .blob-2 { width: 180px; height: 180px; background: #f5c8e8; bottom: 60px; right: -50px; }
+  .blob-3 { width: 140px; height: 140px; background: #b8f0e8; top: 40%; right: -30px; opacity: 0.2; }
+  .header { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 14px 20px 10px; z-index: 10; flex-shrink: 0; }
+  .back-btn { width: 40px; height: 40px; border-radius: 50%; background: var(--white); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(123,111,212,0.2); transition: transform 0.15s; }
+  .back-btn:active { transform: scale(0.93); }
+  .back-btn svg { width: 20px; height: 20px; }
+  .header-title { font-size: 19px; font-weight: 800; color: var(--text-dark); }
+  .char-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#c3b8f5,#f5c8e8); display: flex; align-items: center; justify-content: center; font-size: 22px; }
+
+  /* scrollable area */
+  .content { flex: 1; width: 100%; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 14px; z-index: 5; }
+
+  /* image card */
+  .image-card { background: var(--white); border-radius: 26px; overflow: hidden; box-shadow: 0 6px 28px rgba(91,71,180,0.18); position: relative; flex-shrink: 0; }
+  .image-card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+  .img-placeholder { width: 100%; aspect-ratio: 4/3; background: linear-gradient(135deg,#e8e4fc,#f5e8f8); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text-mid); font-size: 14px; font-weight: 500; }
+  .seg-badge { position: absolute; top: 12px; right: 12px; background: rgba(76,175,125,0.92); color: white; font-size: 12px; font-weight: 700; font-family: 'Tajawal',sans-serif; padding: 5px 12px; border-radius: 20px; display: none; align-items: center; gap: 5px; }
+  .demo-badge { position: absolute; top: 12px; left: 12px; background: rgba(186,117,23,0.9); color: white; font-size: 11px; font-weight: 700; font-family: 'Tajawal',sans-serif; padding: 4px 10px; border-radius: 20px; display: none; align-items: center; gap: 4px; }
+
+  /* word card */
+  .word-card { background: var(--white); border-radius: 26px; padding: 18px 20px; box-shadow: 0 4px 20px rgba(91,71,180,0.13); display: flex; flex-direction: column; gap: 14px; flex-shrink: 0; position: relative; overflow: hidden; }
+  .word-card::before { content:''; position:absolute; top:0; right:0; width:80px; height:80px; background:linear-gradient(135deg,rgba(195,184,245,0.3),transparent); border-radius:0 26px 0 80px; pointer-events:none; }
+  .word-label { font-size: 13px; font-weight: 600; color: var(--text-mid); letter-spacing: 0.5px; }
+  .word-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .word-text-group { display: flex; align-items: center; gap: 14px; }
+  .word-emoji { font-size: 44px; line-height: 1; animation: bounce-in 0.6s cubic-bezier(0.34,1.56,0.64,1) both; }
+  @keyframes bounce-in { 0%{transform:scale(0);opacity:0} 100%{transform:scale(1);opacity:1} }
+  .word-arabic { font-size: 36px; font-weight: 900; color: var(--text-dark); line-height: 1.1; animation: slide-up 0.5s cubic-bezier(0.34,1.56,0.64,1) 0.15s both; }
+  @keyframes slide-up { 0%{transform:translateY(12px);opacity:0} 100%{transform:translateY(0);opacity:1} }
+  .confidence-pill { background: linear-gradient(135deg,#eaf7f0,#d4f0e4); color: #2e7d5a; font-size: 13px; font-weight: 700; padding: 6px 14px; border-radius: 20px; flex-shrink: 0; }
+
+  /* audio */
+  .audio-section { display: flex; flex-direction: column; gap: 10px; }
+  .audio-label { font-size: 13px; font-weight: 600; color: var(--text-mid); }
+  .audio-controls { display: flex; align-items: center; gap: 12px; }
+  .play-btn { width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(135deg,var(--purple),var(--purple-dark)); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(123,111,212,0.4); transition: transform 0.12s; flex-shrink: 0; position: relative; }
+  .play-btn:active { transform: scale(0.92); }
+  .play-btn svg { width: 22px; height: 22px; }
+  .play-btn.loading::after { content:''; position:absolute; inset:0; border-radius:50%; border:3px solid rgba(255,255,255,0.3); border-top-color:white; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .audio-wave { flex: 1; display: flex; align-items: center; gap: 4px; height: 40px; }
+  .wave-bar { flex: 1; background: var(--purple-light); border-radius: 3px; opacity: 0.5; }
+  .audio-wave.playing .wave-bar { animation: wave-anim 0.8s ease-in-out infinite; opacity: 1; }
+  .wave-bar:nth-child(1){height:20%;animation-delay:0s} .wave-bar:nth-child(2){height:50%;animation-delay:.1s}
+  .wave-bar:nth-child(3){height:80%;animation-delay:.2s} .wave-bar:nth-child(4){height:40%;animation-delay:.15s}
+  .wave-bar:nth-child(5){height:70%;animation-delay:.05s} .wave-bar:nth-child(6){height:55%;animation-delay:.25s}
+  .wave-bar:nth-child(7){height:30%;animation-delay:.18s} .wave-bar:nth-child(8){height:65%;animation-delay:.08s}
+  .wave-bar:nth-child(9){height:45%;animation-delay:.22s} .wave-bar:nth-child(10){height:25%;animation-delay:.12s}
+  @keyframes wave-anim { 0%,100%{transform:scaleY(0.6)} 50%{transform:scaleY(1.2)} }
+  .audio-time { font-size: 13px; color: var(--text-mid); font-weight: 600; min-width: 36px; text-align: left; }
+
+  /* ── Spelling card ── */
+  .spell-card {
+    background: var(--white);
+    border-radius: 26px;
+    padding: 18px 20px;
+    box-shadow: 0 4px 20px rgba(91,71,180,0.13);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .spell-card::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 90px; height: 90px;
+    background: linear-gradient(135deg, transparent, rgba(195,184,245,0.25));
+    border-radius: 90px 0 0 26px;
+    pointer-events: none;
+  }
+  .spell-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .spell-icon { font-size: 20px; }
+  .spell-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-mid);
+  }
+  .spell-bubbles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    /* RTL: letters flow right-to-left naturally */
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+  .spell-bubble {
+    width: 48px;
+    height: 52px;
+    border-radius: 16px;
+    background: linear-gradient(145deg, #ede9fc, #ddd5f8);
+    border: 1.5px solid rgba(123,111,212,0.18);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--purple-dark);
+    box-shadow: 0 3px 10px rgba(91,71,180,0.12);
+    animation: pop-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+    cursor: default;
+    user-select: none;
+    transition: transform 0.12s;
+  }
+  .spell-bubble:active { transform: scale(0.93); }
+  .spell-bubble .letter-num {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--purple-light);
+    line-height: 1;
+  }
+  @keyframes pop-in {
+    0%   { transform: scale(0) rotate(-10deg); opacity: 0; }
+    100% { transform: scale(1) rotate(0deg);   opacity: 1; }
+  }
+  .spell-hint {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-mid);
+    opacity: 0.7;
+    text-align: center;
+  }
+
+  /* loading */
+  .loading-card { background: var(--white); border-radius: 26px; padding: 32px 20px; box-shadow: 0 4px 20px rgba(91,71,180,0.13); display: flex; flex-direction: column; align-items: center; gap: 16px; flex-shrink: 0; }
+  .spinner { width: 48px; height: 48px; border: 4px solid rgba(123,111,212,0.15); border-top-color: var(--purple); border-radius: 50%; animation: spin 0.9s linear infinite; }
+  .loading-text { font-size: 16px; font-weight: 600; color: var(--text-mid); }
+  .loading-dots::after { content:''; animation: dots 1.2s steps(4,end) infinite; }
+  @keyframes dots { 0%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} }
+
+  /* error */
+  .error-card { background: #fff5f5; border-radius: 26px; padding: 24px 20px; text-align: center; border: 1.5px solid rgba(226,75,74,0.2); flex-shrink: 0; display: none; }
+  .error-text { font-size: 15px; font-weight: 600; color: #a32d2d; margin-top: 8px; }
+  .retry-btn { margin-top: 14px; padding: 10px 24px; border-radius: 16px; background: var(--purple); color: white; border: none; font-family: 'Tajawal',sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  /* bottom */
+  .bottom-bar { width: 100%; padding: 12px 16px 20px; display: flex; flex-direction: column; gap: 10px; z-index: 10; flex-shrink: 0; }
+  .another-btn { width: 100%; padding: 16px; border-radius: 22px; background: linear-gradient(135deg,var(--btn-pink),var(--btn-pink-dark)); border: none; color: white; font-family: 'Tajawal',sans-serif; font-size: 17px; font-weight: 800; cursor: pointer; box-shadow: 0 5px 18px rgba(232,111,160,0.4); transition: transform 0.13s; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .another-btn:active { transform: scale(0.97); }
+  .save-btn { width: 100%; padding: 13px; border-radius: 22px; background: var(--white); border: 1.5px solid var(--purple-light); color: var(--purple); font-family: 'Tajawal',sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; transition: transform 0.13s; display: none; align-items: center; justify-content: center; gap: 8px; }
+  .save-btn:active { transform: scale(0.97); }
+
+  /* segmented image toggle */
+  .seg-toggle { font-size: 12px; font-weight: 600; color: var(--text-mid); display: none; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .seg-toggle input { accent-color: var(--purple); width: 16px; height: 16px; cursor: pointer; }
+
+  /* confetti */
+  .confetti-container { position: fixed; inset: 0; pointer-events: none; z-index: 100; overflow: hidden; }
+  .confetti-piece { position: absolute; top: -20px; border-radius: 2px; animation: confetti-fall linear forwards; }
+  @keyframes confetti-fall { 0%{transform:translateY(0) rotate(0deg);opacity:1} 100%{transform:translateY(110vh) rotate(720deg);opacity:0} }
+
+  @media (max-height: 700px) {
+    .word-arabic { font-size: 30px; } .word-emoji { font-size: 36px; }
+    .play-btn { width: 44px; height: 44px; }
+    .image-card img, .img-placeholder { aspect-ratio: 5/3; }
+    .spell-bubble { width: 42px; height: 46px; font-size: 19px; }
+  }
+  @media (min-width: 600px) {
+    .content { max-width: 480px; margin: 0 auto; }
+    .bottom-bar { max-width: 480px; margin: 0 auto; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="confetti-container" id="confetti-container"></div>
+
+  <header class="header">
+    <button class="back-btn" onclick="window.location.href='page2_camera.html'" aria-label="رجوع">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+    <span class="header-title">✨ تعلّمت كلمة جديدة!</span>
+    <div class="char-avatar" id="char-avatar">🧒</div>
+  </header>
+
+  <div class="content" id="content">
+
+    <!-- Image -->
+    <div class="image-card" id="image-card">
+      <div class="img-placeholder" id="img-placeholder">
+        <div style="font-size:48px">🖼️</div>
+        <span>جاري تحميل الصورة...</span>
+      </div>
+      <img id="captured-img" style="display:none" alt="الصورة الملتقطة">
+      <div class="seg-badge" id="seg-badge">✓ تم التعرف</div>
+      <div class="demo-badge" id="demo-badge">🧪 وضع تجريبي</div>
+    </div>
+
+    <!-- Segmented image toggle -->
+    <label class="seg-toggle" id="seg-toggle">
+      <input type="checkbox" id="seg-check" onchange="toggleSegmented()">
+      عرض الصورة مع تمييز الجزء المكتشف
+    </label>
+
+    <!-- Loading -->
+    <div class="loading-card" id="loading-card">
+      <div class="spinner"></div>
+      <div class="loading-text">نطوق يفكر<span class="loading-dots"></span></div>
+    </div>
+
+    <!-- Result word card -->
+    <div class="word-card" id="word-card" style="display:none">
+      <div class="word-label">تعرّفت على:</div>
+      <div class="word-main">
+        <div class="word-text-group">
+          <div class="word-emoji" id="result-emoji">🍎</div>
+          <div class="word-arabic" id="result-word">تفاح</div>
+        </div>
+        <div class="confidence-pill" id="conf-pill">٩٢٪</div>
+      </div>
+      <div class="audio-section">
+        <div class="audio-label">🔊 استمع للكلمة</div>
+        <div class="audio-controls">
+          <button class="play-btn" id="play-btn" onclick="playAudio()" aria-label="تشغيل الصوت">
+            <svg viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <div class="audio-wave" id="audio-wave">
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div>
+          </div>
+          <div class="audio-time" id="audio-time">0:00</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spelling card -->
+    <div class="spell-card" id="spell-card" style="display:none">
+      <div class="spell-header">
+        <span class="spell-icon">🔤</span>
+        <span class="spell-title">كيف تُكتب؟</span>
+      </div>
+      <div class="spell-bubbles" id="spell-bubbles"></div>
+      <div class="spell-hint">اضغط على أي حرف لسماعه</div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-card" id="error-card">
+      <div style="font-size:40px">😢</div>
+      <div class="error-text" id="error-text">لم نتمكن من التعرف على الصورة</div>
+      <button class="retry-btn" onclick="analyzeImage()">حاول مجدداً</button>
+    </div>
+
+  </div>
+
+  <div class="bottom-bar">
+    <button class="another-btn" onclick="window.location.href='page2_camera.html'">
+      <span>📷</span> التقط صورة أخرى!
+    </button>
+    <button class="save-btn" id="save-btn" onclick="saveWord()">
+      <span>⭐</span> احفظ هذه الكلمة
+    </button>
+  </div>
+</div>
+
+<script>
+  /* ── Config ── */
+  const API_BASE = 'http://127.0.0.1:8000';
+
+  /* ── State ── */
+  const char = localStorage.getItem('natooq_char') || 'boy';
+  document.getElementById('char-avatar').textContent = char === 'girl' ? '👧' : '🧒';
+
+  let currentWord = '';
+  let audioTimer  = null;
+  let audioSec    = 0;
+  let segBase64   = null;
+  let origSrc     = null;
+
+  // Single <audio> element reused for all playback
+  const audioEl = new Audio();
+
+  /* ── Audio event wiring ── */
+  audioEl.addEventListener('play', () => {
+    document.getElementById('audio-wave').classList.add('playing');
+    document.querySelector('#play-btn svg').innerHTML =
+      '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+    document.getElementById('play-btn').classList.remove('loading');
+    startTimer();
+  });
+
+  audioEl.addEventListener('ended', () => stopAudioUI());
+
+  audioEl.addEventListener('error', () => {
+    // Fallback: Web Speech API if backend TTS fails
+    stopAudioUI();
+    if (!currentWord) return;
+    const utt  = new SpeechSynthesisUtterance(currentWord);
+    utt.lang   = 'ar-SA';
+    utt.rate   = 0.75;
+    utt.pitch  = 1;
+    utt.volume = 1;
+    const voices  = window.speechSynthesis.getVoices();
+    const arVoice = voices.find(v => v.lang.startsWith('ar'));
+    if (arVoice) utt.voice = arVoice;
+    utt.onstart = () => {
+      document.getElementById('audio-wave').classList.add('playing');
+      document.querySelector('#play-btn svg').innerHTML =
+        '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+      startTimer();
+    };
+    utt.onend   = () => stopAudioUI();
+    utt.onerror = () => stopAudioUI();
+    window.speechSynthesis.speak(utt);
+  });
+
+  /* ── Load image ── */
+  const imageData   = sessionStorage.getItem('natooq_image');
+  const capturedImg = document.getElementById('captured-img');
+
+  if (imageData) {
+    origSrc = imageData;
+    capturedImg.src = imageData;
+    capturedImg.style.display = 'block';
+    document.getElementById('img-placeholder').style.display = 'none';
+    analyzeImage();
+  } else {
+    showError('لا توجد صورة ملتقطة. يرجى العودة والتقاط صورة.');
+  }
+
+  /* ── API call ── */
+  async function analyzeImage() {
+    showLoading();
+    hideError();
+    if (!imageData) { showError('لا توجد صورة'); return; }
+
+    try {
+      const fetchRes = await fetch(imageData);
+      const blob     = await fetchRes.blob();
+      const form     = new FormData();
+      form.append('file', blob, 'capture.jpg');
+
+      const res  = await fetch(`${API_BASE}/predict`, { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      showResult(data.label, data.confidence, data.emoji, data.segmented_image, data.demo_mode, data.spelling || []);
+
+    } catch (e) {
+      console.warn('API error:', e);
+      // Fallback demo
+      const demos = [
+        { label:'تفاح', confidence:0.94, emoji:'🍎' },
+        { label:'كتاب', confidence:0.91, emoji:'📚' },
+        { label:'كرة',  confidence:0.88, emoji:'⚽' },
+        { label:'قط',   confidence:0.96, emoji:'🐱' },
+        { label:'سيارة',confidence:0.90, emoji:'🚗' },
+      ];
+      const d = demos[Math.floor(Math.random() * demos.length)];
+      const spelling = [...d.label].filter(ch => ch.trim());
+      setTimeout(() => showResult(d.label, d.confidence, d.emoji, null, true, spelling), 700);
+    }
+  }
+
+  /* ── UI helpers ── */
+  function showLoading() {
+    document.getElementById('loading-card').style.display = 'flex';
+    document.getElementById('word-card').style.display    = 'none';
+    document.getElementById('spell-card').style.display   = 'none';
+    document.getElementById('save-btn').style.display     = 'none';
+  }
+
+  function hideError() {
+    document.getElementById('error-card').style.display = 'none';
+  }
+
+  function showError(msg) {
+    document.getElementById('loading-card').style.display = 'none';
+    document.getElementById('word-card').style.display    = 'none';
+    document.getElementById('spell-card').style.display   = 'none';
+    const ec = document.getElementById('error-card');
+    ec.style.display = 'block';
+    document.getElementById('error-text').textContent = msg || 'لم نتمكن من التعرف على الصورة';
+  }
+
+  function showResult(label, confidence, emoji, segImg, demoMode, spelling) {
+    currentWord = label;
+
+    // Stop any previous audio
+    audioEl.pause();
+    audioEl.src = '';
+    stopAudioUI();
+
+    document.getElementById('loading-card').style.display = 'none';
+
+    /* word + emoji */
+    document.getElementById('result-emoji').textContent = emoji || '❓';
+    document.getElementById('result-word').textContent  = label;
+    document.getElementById('conf-pill').textContent    = toAr(Math.round(confidence * 100)) + '٪';
+
+    /* badges */
+    document.getElementById('seg-badge').style.display  = 'flex';
+    document.getElementById('demo-badge').style.display = demoMode ? 'flex' : 'none';
+
+    /* segmented image toggle */
+    if (segImg) {
+      segBase64 = 'data:image/png;base64,' + segImg;
+      document.getElementById('seg-toggle').style.display = 'flex';
+    }
+
+    /* show word card */
+    document.getElementById('word-card').style.display = 'flex';
+    document.getElementById('save-btn').style.display  = 'flex';
+
+    /* ── Spelling bubbles ── */
+    const bubblesEl = document.getElementById('spell-bubbles');
+    bubblesEl.innerHTML = '';
+
+    if (spelling && spelling.length > 0) {
+      spelling.forEach((letter, i) => {
+        const bubble = document.createElement('div');
+        bubble.className = 'spell-bubble';
+        bubble.style.animationDelay = `${i * 0.08}s`;
+        bubble.title = `الحرف ${toAr(i + 1)}`;
+
+        // Letter
+        const letterSpan = document.createElement('span');
+        letterSpan.textContent = letter;
+
+        // Small number underneath
+        const numSpan = document.createElement('span');
+        numSpan.className = 'letter-num';
+        numSpan.textContent = toAr(i + 1);
+
+        bubble.appendChild(letterSpan);
+        bubble.appendChild(numSpan);
+
+        // Tap a bubble → speak just that letter
+        bubble.addEventListener('click', () => speakLetter(letter, bubble));
+
+        bubblesEl.appendChild(bubble);
+      });
+
+      document.getElementById('spell-card').style.display = 'flex';
+    }
+
+    /* auto-play full word audio */
+    setTimeout(playAudio, 600);
+
+    /* confetti */
+    launchConfetti(demoMode ? 12 : 42);
+  }
+
+  /* ── Speak a single letter on bubble tap ── */
+  function speakLetter(letter, bubbleEl) {
+    // Quick visual pulse
+    bubbleEl.style.transform = 'scale(1.2)';
+    setTimeout(() => bubbleEl.style.transform = '', 200);
+
+    window.speechSynthesis.cancel();
+    const utt  = new SpeechSynthesisUtterance(letter);
+    utt.lang   = 'ar-SA';
+    utt.rate   = 0.6;
+    utt.pitch  = 1.1;
+    utt.volume = 1;
+    const voices  = window.speechSynthesis.getVoices();
+    const arVoice = voices.find(v => v.lang.startsWith('ar'));
+    if (arVoice) utt.voice = arVoice;
+    window.speechSynthesis.speak(utt);
+  }
+
+  /* ── Segmented image toggle ── */
+  function toggleSegmented() {
+    const checked = document.getElementById('seg-check').checked;
+    capturedImg.src = checked && segBase64 ? segBase64 : origSrc;
+  }
+
+  /* ─────────────────────────────────────────────
+     Audio — fetches MP3 from backend /tts endpoint
+     Falls back to Web Speech API on error
+  ───────────────────────────────────────────── */
+  function playAudio() {
+    if (!currentWord) return;
+
+    // If already playing → stop
+    if (!audioEl.paused) {
+      audioEl.pause();
+      audioEl.currentTime = 0;
+      stopAudioUI();
+      return;
+    }
+
+    // Show loading spinner on button
+    const btn = document.getElementById('play-btn');
+    btn.classList.add('loading');
+    btn.querySelector('svg').innerHTML = '';
+
+    audioEl.src = `${API_BASE}/tts?word=${encodeURIComponent(currentWord)}`;
+    audioEl.load();
+    audioEl.play().catch(() => {
+      btn.classList.remove('loading');
+      btn.querySelector('svg').innerHTML = '<path d="M8 5v14l11-7z"/>';
+    });
+  }
+
+  function stopAudioUI() {
+    clearInterval(audioTimer);
+    audioSec = 0;
+    document.getElementById('audio-wave').classList.remove('playing');
+    document.getElementById('audio-time').textContent = '0:00';
+    const btn = document.getElementById('play-btn');
+    btn.classList.remove('loading');
+    btn.querySelector('svg').innerHTML = '<path d="M8 5v14l11-7z"/>';
+  }
+
+  function startTimer() {
+    clearInterval(audioTimer);
+    audioSec = 0;
+    document.getElementById('audio-time').textContent = '0:00';
+    audioTimer = setInterval(() => {
+      audioSec++;
+      const m = Math.floor(audioSec / 60), s = audioSec % 60;
+      document.getElementById('audio-time').textContent =
+        `${m}:${String(s).padStart(2, '0')}`;
+    }, 1000);
+  }
+
+  /* ── Save word ── */
+  function saveWord() {
+    if (!currentWord) return;
+    const saved = JSON.parse(localStorage.getItem('natooq_saved') || '[]');
+    const emoji = document.getElementById('result-emoji').textContent;
+    if (!saved.find(w => w.word === currentWord))
+      saved.push({ word: currentWord, emoji, date: Date.now() });
+    localStorage.setItem('natooq_saved', JSON.stringify(saved));
+
+    const btn = document.getElementById('save-btn');
+    btn.innerHTML = '<span>✅</span> تم الحفظ!';
+    btn.style.cssText += ';background:#eaf7f0;color:#2e7d5a;border-color:#4caf7d';
+    btn.disabled = true;
+    setTimeout(() => {
+      btn.innerHTML = '<span>⭐</span> احفظ هذه الكلمة';
+      btn.style.cssText = '';
+      btn.disabled = false;
+    }, 2000);
+  }
+
+  /* ── Confetti ── */
+  function launchConfetti(count = 42) {
+    const container = document.getElementById('confetti-container');
+    const colors = ['#a89de8','#f5c8e8','#7b6fd4','#5b8de8','#ffd166','#06d6a0'];
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'confetti-piece';
+      el.style.cssText = `
+        left:${Math.random()*100}vw;
+        background:${colors[Math.floor(Math.random()*colors.length)]};
+        width:${Math.random()*8+6}px; height:${Math.random()*8+6}px;
+        border-radius:${Math.random()>.5?'50%':'2px'};
+        animation-duration:${Math.random()*1.5+1.2}s;
+        animation-delay:${Math.random()*0.5}s;
+      `;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 2500);
+    }
+  }
+
+  /* ── Helpers ── */
+  function toAr(n) {
+    return String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[d]);
+  }
+</script>
+</body>
+</html>
