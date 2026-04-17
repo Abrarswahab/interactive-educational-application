@@ -157,17 +157,9 @@ streamlit run kidsapp.py
 
 ---
 
-## 🚧 Challenges
-
-* Streamlit + FastAPI integration
-* YOLO setup on Windows
-* UI design for kids
-
----
 
 ## 🔮 Future Work
 
-* 🎥 Real camera support
 * 🎮 Mini learning games
 * 🌍 Multi-language support
 * ☁️ Cloud deployment
