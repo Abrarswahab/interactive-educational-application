@@ -1,0 +1,728 @@
+import streamlit as st
+from PIL import Image
+import os
+import time
+
+st.set_page_config(page_title="المستكشف الذكي", page_icon="🌟", layout="wide")
+
+# =============================
+# الملفات المطلوبة في نفس المجلد
+# =============================
+logo_path = "logo.png"
+kids_image_path = "kids.png"
+girl_path = "girl.png"
+boy_path = "boy.png"
+
+# =============================
+# Session State
+# =============================
+if "selected_character" not in st.session_state:
+    st.session_state.selected_character = ""
+
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "welcome"
+
+if "captured_image" not in st.session_state:
+    st.session_state.captured_image = None
+
+if "captured_name" not in st.session_state:
+    st.session_state.captured_name = ""
+
+if "predicted_label" not in st.session_state:
+    st.session_state.predicted_label = "شخص"
+
+if "predicted_conf" not in st.session_state:
+    st.session_state.predicted_conf = "٩٤٪"
+
+# =============================
+# Shared CSS
+# =============================
+SHARED_CSS = """
+<style>
+header {visibility: hidden;}
+footer {visibility: hidden;}
+#MainMenu {visibility: hidden;}
+
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:            #eeeaf8;
+  --white:         #ffffff;
+  --purple:        #7b6fd4;
+  --purple-light:  #a89de8;
+  --purple-dark:   #5a4fb0;
+  --btn-blue:      #5b8de8;
+  --btn-blue-dark: #3d6fd4;
+  --btn-pink:      #e86fa0;
+  --btn-pink-dark: #c9507f;
+  --text-dark:     #2d2557;
+  --text-mid:      #6b62a8;
+  --card-shadow:   0 4px 24px rgba(91,71,180,0.13);
+}
+
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stApp"] {
+  background: var(--bg) !important;
+  font-family: 'Tajawal', sans-serif !important;
+  direction: rtl;
+}
+
+.main .block-container {
+  max-width: 1250px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 20px 24px 60px !important;
+  animation: fadePage 0.55s ease;
+}
+
+@keyframes fadePage {
+  from {opacity: 0; transform: translateY(16px);}
+  to {opacity: 1; transform: translateY(0);}
+}
+
+@keyframes floatImage {
+  0% {transform: translateY(0px);}
+  50% {transform: translateY(-12px);}
+  100% {transform: translateY(0px);}
+}
+
+.blob-bg { position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden; }
+.blob { position:absolute; border-radius:50%; filter:blur(55px); opacity:0.30; }
+.blob-1 { width:240px; height:240px; background:#c3b8f5; top:-8%; left:-4%; }
+.blob-2 { width:180px; height:180px; background:#f5c8e8; bottom:4%; right:-4%; }
+.blob-3 { width:140px; height:140px; background:#b8f0e8; top:40%; right:-2%; opacity:0.18; }
+
+.welcome-title {
+    font-size: 72px;
+    font-weight: 900;
+    color: #18264a;
+    margin-top: 10px;
+    margin-bottom: 12px;
+    text-align: right;
+    line-height: 1.1;
+}
+
+.welcome-subtitle {
+    font-size: 30px;
+    font-weight: 800;
+    color: #6d7792;
+    margin-bottom: 18px;
+    text-align: right;
+}
+
+.welcome-desc {
+    font-size: 24px;
+    color: #7a849f;
+    line-height: 2;
+    text-align: right;
+    margin-bottom: 22px;
+}
+
+.main-title {
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 1.15;
+    color: #18264a;
+    margin-bottom: 18px;
+    text-align: right;
+}
+
+.highlight {
+    background: linear-gradient(90deg, #d9ccff, #c7e3ff);
+    color: #6d4cff;
+    padding: 6px 16px;
+    border-radius: 16px;
+}
+
+.sub-text {
+    font-size: 22px;
+    color: #6b7690;
+    line-height: 1.9;
+    margin-bottom: 20px;
+    text-align: right;
+}
+
+.pill {
+    display: inline-block;
+    background: rgba(255,255,255,0.98);
+    padding: 12px 20px;
+    border-radius: 999px;
+    margin-left: 10px;
+    margin-bottom: 10px;
+    font-weight: 800;
+    color: #667089;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.05);
+    font-size: 18px;
+}
+
+.message-box {
+    background: #f2d8a4;
+    color: #5f462f;
+    border-radius: 24px;
+    padding: 18px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: 800;
+    margin-top: 20px;
+    margin-bottom: 15px;
+}
+
+.note {
+    text-align: center;
+    color: #7b85a1;
+    font-size: 17px;
+    margin-top: 10px;
+}
+
+.section-title {
+    text-align: center;
+    font-size: 34px;
+    font-weight: 900;
+    color: #1b2a4c;
+    margin-bottom: 20px;
+}
+
+
+.card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 34px rgba(42,58,95,0.12);
+}
+
+.img-box-girl {
+    background: #efd7ee;
+    border-radius: 24px;
+    padding: 20px;
+    margin-bottom: 18px;
+}
+
+.img-box-boy {
+    background: #dbeaf7;
+    border-radius: 24px;
+    padding: 20px;
+    margin-bottom: 18px;
+}
+
+.char-name {
+    font-size: 30px;
+    font-weight: 900;
+    color: #18264a;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.char-desc {
+    font-size: 18px;
+    color: #6d7792;
+    line-height: 1.9;
+    min-height: 120px;
+    text-align: center;
+}
+
+.floating-image {
+    animation: floatImage 3.5s ease-in-out infinite;
+    filter: drop-shadow(0 20px 28px rgba(0, 0, 0, 0.10));
+    margin-top: 90px;
+}
+
+.nq-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 0 16px;
+}
+.nq-title {
+  font-size:22px; font-weight:800; color:var(--text-dark); text-align:center; flex:1;
+}
+.nq-avatar {
+  width:44px; height:44px; border-radius:50%;
+  background:linear-gradient(135deg,#c3b8f5,#f5c8e8);
+  display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;
+}
+.nq-back {
+  width:44px; height:44px; border-radius:50%; background:var(--white);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 2px 12px rgba(123,111,212,0.18);
+  font-size:22px; color:var(--purple); font-weight:900; flex-shrink:0;
+}
+
+.nq-instruction {
+  background:var(--white); border-radius:20px; padding:12px 18px;
+  display:flex; align-items:center; gap:12px; box-shadow:0 2px 14px rgba(123,111,212,0.10);
+  margin-bottom:18px; direction:rtl;
+}
+.nq-instruction-icon { font-size:26px; flex-shrink:0; }
+.nq-instruction-text { font-size:15px; font-weight:500; color:var(--text-mid); line-height:1.5; }
+
+.nq-cam-frame {
+  width:100%; aspect-ratio:3/4; border-radius:30px; overflow:hidden; position:relative;
+  background:#1a1a2e; box-shadow:0 8px 40px rgba(91,71,180,0.28); margin-bottom:18px;
+}
+.cc { position:absolute; width:22px; height:22px; border-color:rgba(255,255,255,0.45); border-style:solid; }
+.cc.tl { top:14px; right:14px; border-width:2px 0 0 2px; }
+.cc.tr { top:14px; left:14px;  border-width:2px 2px 0 0; }
+.cc.bl { bottom:14px; right:14px; border-width:0 0 2px 2px; }
+.cc.br { bottom:14px; left:14px;  border-width:0 2px 2px 0; }
+.cam-dots {
+  position:absolute; inset:0; background-image:radial-gradient(rgba(160,140,255,0.07) 1px,transparent 1px);
+  background-size:26px 26px;
+}
+.guide-sq {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:62%; aspect-ratio:1; border-radius:22px; border:2.5px solid rgba(200,185,255,0.9);
+  animation:glow-pulse 2.2s ease-in-out infinite;
+}
+.guide-lbl {
+  position:absolute; bottom:-24px; left:50%; transform:translateX(-50%);
+  font-size:13px; font-weight:600; color:rgba(210,200,255,0.9); white-space:nowrap;
+}
+@keyframes glow-pulse {
+  0%,100% { box-shadow:0 0 0 3px rgba(160,140,255,0.18),0 0 18px 4px rgba(160,140,255,0.32),inset 0 0 18px 2px rgba(160,140,255,0.08); }
+  50%      { box-shadow:0 0 0 5px rgba(160,140,255,0.32),0 0 32px 10px rgba(160,140,255,0.50),inset 0 0 24px 6px rgba(160,140,255,0.18); }
+}
+.cam-error {
+  position:absolute; inset:0; background:rgba(20,18,48,0.92); display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:14px; text-align:center; padding:28px; border-radius:inherit;
+}
+.cam-error-icon { font-size:52px; }
+.cam-error-text { font-size:15px; font-weight:600; color:rgba(200,185,255,0.9); line-height:1.5; }
+
+.nq-controls { display:flex; align-items:center; justify-content:center; gap:36px; margin-bottom:16px; }
+.icon-btn {
+  width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.82);
+  display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 2px 12px rgba(123,111,212,0.13);
+}
+.shutter {
+  width:76px; height:76px; border-radius:50%; background:var(--white); border:5px solid var(--purple-light);
+  display:flex; align-items:center; justify-content:center; box-shadow:0 4px 22px rgba(123,111,212,0.32);
+}
+.shutter-inner {
+  width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,var(--purple),var(--purple-dark));
+}
+
+.nq-learn-btn {
+  display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:18px;
+  border-radius:24px; background:linear-gradient(135deg,var(--btn-blue),var(--btn-blue-dark));
+  color:white; font-size:19px; font-weight:800; box-shadow:0 5px 22px rgba(91,141,232,0.42);
+  margin-bottom:12px;
+}
+.nq-learn-icon {
+  width:30px; height:30px; background:rgba(255,255,255,0.24); border-radius:50%;
+  display:flex; align-items:center; justify-content:center; font-size:17px;
+}
+
+.nq-img-card {
+  width:100%; border-radius:28px; overflow:hidden; position:relative;
+  box-shadow:0 6px 32px rgba(91,71,180,0.18); margin-bottom:16px;
+}
+.nq-img-placeholder {
+  width:100%; aspect-ratio:4/3; background:linear-gradient(135deg,#e8e4fc,#f5e8f8);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--text-mid);
+  font-size:15px; font-weight:500;
+}
+.nq-seg-badge {
+  position:absolute; top:14px; right:14px; background:rgba(76,175,125,0.92); color:white;
+  font-size:13px; font-weight:700; padding:6px 14px; border-radius:20px;
+}
+
+.nq-word-card, .nq-spell-card {
+  background:var(--white); border-radius:28px; box-shadow:var(--card-shadow); padding:22px; margin-bottom:16px;
+  position:relative; overflow:hidden; direction:rtl;
+}
+.nq-word-card::before {
+  content:''; position:absolute; top:0; right:0; width:90px; height:90px;
+  background:linear-gradient(135deg,rgba(195,184,245,0.28),transparent); border-radius:0 28px 0 90px;
+}
+.word-lbl, .audio-lbl, .spell-hdr-lbl, .spell-hint {
+  font-size:14px; font-weight:600; color:var(--text-mid);
+}
+.word-row { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px; }
+.word-left { display:flex; align-items:center; gap:16px; }
+.word-emoji { font-size:48px; }
+.word-arabic { font-size:40px; font-weight:900; color:var(--text-dark); }
+.conf-pill {
+  background:linear-gradient(135deg,#eaf7f0,#d4f0e4); color:#2e7d5a; font-size:14px; font-weight:700;
+  padding:8px 16px; border-radius:20px; flex-shrink:0;
+}
+.audio-row { display:flex; align-items:center; gap:14px; }
+.play-btn {
+  width:56px; height:56px; border-radius:50%; flex-shrink:0; background:linear-gradient(135deg,var(--purple),var(--purple-dark));
+  display:flex; align-items:center; justify-content:center; box-shadow:0 4px 18px rgba(123,111,212,0.38); color:white; font-size:20px;
+}
+.audio-wave { flex:1; display:flex; align-items:center; gap:5px; height:42px; }
+.wbar { flex:1; background:var(--purple-light); border-radius:3px; opacity:0.5; }
+.wbar:nth-child(1){height:20%} .wbar:nth-child(2){height:50%} .wbar:nth-child(3){height:80%} .wbar:nth-child(4){height:40%}
+.wbar:nth-child(5){height:70%} .wbar:nth-child(6){height:55%} .wbar:nth-child(7){height:30%} .wbar:nth-child(8){height:65%}
+.wbar:nth-child(9){height:45%} .wbar:nth-child(10){height:25%}
+.audio-time { font-size:14px; color:var(--text-mid); font-weight:600; min-width:40px; text-align:left; }
+
+.spell-hdr { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.spell-bubbles { display:flex; flex-wrap:wrap; gap:10px; flex-direction:row; justify-content:flex-end; margin-bottom:12px; }
+.spell-bubble {
+  width:52px; height:56px; border-radius:16px; background:linear-gradient(145deg,#ede9fc,#ddd5f8);
+  border:1.5px solid rgba(123,111,212,0.17); display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:2px; font-size:24px; font-weight:900; color:var(--purple-dark); box-shadow:0 3px 10px rgba(91,71,180,0.10);
+}
+.ltr-num { font-size:10px; font-weight:600; color:var(--purple-light); line-height:1; }
+
+.nq-pink-btn, .nq-outline-btn {
+  display:flex; align-items:center; justify-content:center; gap:12px; width:100%; text-align:center; border-radius:24px;
+}
+.nq-pink-btn {
+  padding:18px; background:linear-gradient(135deg,var(--btn-pink),var(--btn-pink-dark)); color:white; font-size:19px; font-weight:800;
+  box-shadow:0 5px 20px rgba(232,111,160,0.38); margin-bottom:12px;
+}
+.nq-outline-btn {
+  padding:15px; background:var(--white); border:1.5px solid var(--purple-light); color:var(--purple); font-size:16px; font-weight:700;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+  border:1.5px dashed var(--purple-light) !important; border-radius:16px !important; background:rgba(255,255,255,0.6) !important;
+}
+[data-testid="stBaseButton-primary"] {
+  background:linear-gradient(135deg,var(--btn-blue),var(--btn-blue-dark)) !important; border:none !important; border-radius:20px !important;
+  font-size:17px !important; font-weight:800 !important; padding:14px !important;
+}
+[data-testid="stBaseButton-secondary"] {
+  background:var(--white) !important; border:1.5px solid var(--purple-light) !important; border-radius:20px !important; color:var(--purple) !important;
+  font-weight:700 !important;
+}
+[data-testid="stImage"] img { border-radius:22px; box-shadow:0 4px 20px rgba(91,71,180,0.14); }
+
+div.stButton > button {
+  width: 100%; border: none; border-radius: 20px; padding: 0.95rem 1rem; font-size: 20px; font-weight: 800;
+  color: white; background: linear-gradient(135deg, #745cff, #4d96ff); box-shadow: 0 12px 28px rgba(91,110,255,0.28); transition: 0.2s ease;
+}
+div.stButton > button:hover { transform: scale(1.03); }
+.start-btn { max-width: 250px; margin: 32px auto 0 auto; }
+.back-btn { max-width: 190px; margin-bottom: 20px; }
+</style>
+
+<div class="blob-bg">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+"""
+
+st.markdown(SHARED_CSS, unsafe_allow_html=True)
+
+# =============================
+# Navigation helper
+# =============================
+def go_to_page(page_name: str):
+    with st.spinner("جاري الانتقال..."):
+        time.sleep(0.35)
+    st.session_state.current_page = page_name
+    st.rerun()
+
+# =============================
+# Welcome page
+# =============================
+def show_welcome_page():
+    right_col, left_col = st.columns([1.2, 1], gap="large")
+
+    with right_col:
+        if os.path.exists(logo_path):
+            st.image(logo_path, width=260)
+        else:
+            st.warning("ملف logo.png غير موجود")
+
+        st.markdown('<div class="welcome-title">ابدأ رحلتك</div>', unsafe_allow_html=True)
+        st.markdown('<div class="welcome-subtitle">مرحبًا بالمستكشف الذكي</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="welcome-desc">في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة، وتختار شخصيتك المفضلة لتبدأ المغامرة.</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            """
+            <span class="pill">🌈 ممتع</span>
+            <span class="pill">🧠 ذكي</span>
+            <span class="pill">✨ مناسب للأطفال</span>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+        if st.button("ابدأ", key="start_welcome"):
+            go_to_page("characters")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with left_col:
+        st.markdown('<div class="floating-image">', unsafe_allow_html=True)
+        if os.path.exists(kids_image_path):
+            st.image(kids_image_path, width=460)
+        else:
+            st.warning("ملف kids.png غير موجود")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# =============================
+# Character page
+# =============================
+def show_character_page():
+    st.markdown('<div class="back-btn">', unsafe_allow_html=True)
+    if st.button("⬅ رجوع", key="back_to_welcome"):
+        go_to_page("welcome")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    left, right = st.columns([1.1, 1], gap="large")
+
+    with left:
+        st.markdown(
+            '<div class="main-title">هيا نبدأ <span class="highlight">رحلة</span><br>التعلّم</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="sub-text">اختر شخصيتك المفضلة لتبدأ رحلة تعليمية ممتعة وودودة صُممت خصيصًا للأطفال.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <span class="pill">🌈 ممتع</span>
+            <span class="pill">📚 سهل</span>
+            <span class="pill">✨ لطيف</span>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if st.session_state.selected_character:
+            st.markdown(
+                f'<div class="message-box">لقد اخترت: {st.session_state.selected_character} 💛</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="message-box">اختر شخصية للمتابعة 💛</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="note">هذه الصفحة مخصصة فقط لاختيار الشخصية في البداية.</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+        if st.button("ابدأ التعلّم", key="start_learning_btn"):
+            go_to_page("camera")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="section-title">اختر شخصيتك</div>', unsafe_allow_html=True)
+        col_girl, col_boy = st.columns(2, gap="large")
+
+        with col_girl:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<div class="img-box-girl">', unsafe_allow_html=True)
+            if os.path.exists(girl_path):
+                st.image(Image.open(girl_path), width=220)
+            else:
+                st.error("ملف girl.png غير موجود")
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="char-name">بنت</div>', unsafe_allow_html=True)
+            st.markdown('<div class="char-desc">رفيقة تعلم مرحة تحب القصص، والألوان، واكتشاف أشياء جديدة.</div>', unsafe_allow_html=True)
+            if st.button("اختيار البنت", key="girl_button_unique"):
+                st.session_state.selected_character = "بنت"
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col_boy:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<div class="img-box-boy">', unsafe_allow_html=True)
+            if os.path.exists(boy_path):
+                st.image(Image.open(boy_path), width=220)
+            else:
+                st.error("ملف boy.png غير موجود")
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="char-name">ولد</div>', unsafe_allow_html=True)
+            st.markdown('<div class="char-desc">رفيق تعلم نشيط يحب الألعاب، والتحديات، والمغامرات الممتعة.</div>', unsafe_allow_html=True)
+            if st.button("اختيار الولد", key="boy_button_unique"):
+                st.session_state.selected_character = "ولد"
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# =============================
+# Camera page
+# =============================
+def show_camera_page():
+    st.markdown("""
+    <div class="nq-header">
+      <div class="nq-avatar">🐥</div>
+      <span class="nq-title">📸 وقت التصوير!</span>
+      <div class="nq-back">›</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    captured = st.session_state.get("captured_image")
+    instr = "رائع! 🎉 هل تريد تعلّم اسم هذا الشيء؟" if captured else "ضع الشيء داخل المربع المضيء ثم التقط الصورة"
+
+    st.markdown(f"""
+    <div class="nq-instruction">
+      <span class="nq-instruction-icon">🎯</span>
+      <p class="nq-instruction-text">{instr}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if captured:
+        st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
+        st.image(captured, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="nq-cam-frame">
+          <div class="cam-dots"></div>
+          <div class="cc tl"></div><div class="cc tr"></div>
+          <div class="cc bl"></div><div class="cc br"></div>
+          <div class="guide-sq">
+            <span class="guide-lbl">ضع الشيء هنا</span>
+          </div>
+          <div class="cam-error">
+            <div class="cam-error-icon">📷</div>
+            <div class="cam-error-text">لم نتمكن من فتح الكاميرا<br>تأكد من إذن الكاميرا</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    uploaded = st.file_uploader(
+        "اختر صورة من جهازك 🖼️",
+        type=["jpg", "jpeg", "png", "webp"],
+        label_visibility="visible",
+    )
+    if uploaded:
+        data = uploaded.read()
+        st.session_state.captured_image = data
+        st.session_state.captured_name = uploaded.name
+        st.rerun()
+
+    st.markdown("""
+    <div class="nq-controls">
+      <div class="icon-btn">🔄</div>
+      <div class="shutter"><div class="shutter-inner"></div></div>
+      <div class="icon-btn">🖼️</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if captured:
+        col1, col2, col3 = st.columns([1.2, 1.8, 1])
+        with col1:
+            if st.button("⬅ رجوع", use_container_width=True, key="camera_back"):
+                go_to_page("characters")
+        with col2:
+            if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
+                go_to_page("results")
+        with col3:
+            if st.button("↩️ إعادة", use_container_width=True, key="retake"):
+                st.session_state.captured_image = None
+                st.session_state.captured_name = ""
+                st.rerun()
+    else:
+        st.markdown("""
+        <div class="nq-learn-btn" style="opacity:0.45">
+          <div class="nq-learn-icon">✨</div>
+          تعلّم هذه الكلمة!
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
+            go_to_page("characters")
+
+# =============================
+# Results page
+# =============================
+def to_eastern(n: int) -> str:
+    return str(n).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+
+
+def show_results_page():
+    st.markdown("""
+    <div class="nq-header">
+      <div class="nq-avatar">🐥</div>
+      <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>
+      <div class="nq-back">›</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    captured = st.session_state.get("captured_image")
+    word = st.session_state.get("predicted_label", "شخص")
+    conf = st.session_state.get("predicted_conf", "٩٤٪")
+
+    st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
+    if captured:
+        st.image(captured, use_container_width=True)
+    else:
+        st.markdown("""
+        <div class="nq-img-placeholder">
+          <div style="font-size:56px">🖼️</div>
+          <span>الصورة الملتقطة تظهر هنا</span>
+        </div>
+        """, unsafe_allow_html=True)
+    st.markdown('<div class="nq-seg-badge">✓ تم التعرف</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="nq-word-card">
+      <div class="word-lbl">تعرّفت على:</div>
+      <div class="word-row">
+        <div class="word-left">
+          <div class="word-emoji">👤</div>
+          <div class="word-arabic">{word}</div>
+        </div>
+        <div class="conf-pill">{conf}</div>
+      </div>
+      <div class="audio-lbl">🔊 استمع للكلمة</div>
+      <div class="audio-row">
+        <div class="audio-time">0:00</div>
+        <div class="audio-wave">
+          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+          <div class="wbar"></div>
+        </div>
+        <div class="play-btn">▶</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    letters = list(word)
+    bubbles = "".join(
+        f'<div class="spell-bubble"><span>{ch}</span><span class="ltr-num">{to_eastern(i + 1)}</span></div>'
+        for i, ch in enumerate(letters)
+    )
+
+    st.markdown(f"""
+    <div class="nq-spell-card">
+      <div class="spell-hdr">
+        <span class="spell-hdr-icon">🔤</span>
+        <span class="spell-hdr-lbl">كيف تُكتب؟</span>
+      </div>
+      <div class="spell-bubbles">{bubbles}</div>
+      <div class="spell-hint">اضغط على أي حرف لسماعه</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="nq-pink-btn">📷 التقط صورة أخرى!</div>
+    <div class="nq-outline-btn">⭐ احفظ هذه الكلمة</div>
+    <br>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📷 التقط صورة أخرى", use_container_width=True, key="capture_again"):
+            st.session_state.captured_image = None
+            st.session_state.captured_name = ""
+            go_to_page("camera")
+    with col2:
+        if st.button("⭐ احفظ الكلمة", use_container_width=True, type="primary", key="save_word"):
+            st.success("✅ تم الحفظ!")
+
+# =============================
+# Router
+# =============================
+page = st.session_state.current_page
+
+if page == "welcome":
+    show_welcome_page()
+elif page == "characters":
+    show_character_page()
+elif page == "camera":
+    show_camera_page()
+else:
+    show_results_page()
