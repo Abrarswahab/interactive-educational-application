@@ -657,128 +657,55 @@ def show_character_page():
 # Camera page
 # =============================
 def show_camera_page():
-    # ---------- Camera-page CSS (ported from the reference HTML) ----------
+    # ---------- Camera-page CSS ----------
+    # Uses ONLY reliable selectors. No JS injection, no :has() trickery.
+    # We skip the on-video guide square because Streamlit's camera_input is a
+    # closed widget — we can't safely overlay on top of its video without risking
+    # hiding it entirely (as we just saw). Instead we style the OUTER container
+    # with a matching dark frame + purple shutter so it still feels like the reference.
     st.markdown("""
     <style>
-    /* The whole camera input container becomes our "camera-frame" */
+    /* Outer camera container — dark rounded frame */
     [data-testid="stCameraInput"] {
-        position: relative;
-        border-radius: 28px;
+        border-radius: 24px;
         background: #1a1a2e;
-        box-shadow: 0 8px 32px rgba(91,71,180,0.30);
-        overflow: visible;
-        max-width: 420px;
-        margin: 0 auto 18px;
+        box-shadow: 0 8px 28px rgba(91,71,180,0.30);
+        padding: 10px 10px 4px;
+        max-width: 460px;
+        margin: 0 auto 12px;
+        position: relative;
     }
-    /* Round + fill the video / captured preview */
+    /* Round the live video and the captured still */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
-        border-radius: 28px !important;
+        border-radius: 16px !important;
         width: 100% !important;
-        object-fit: cover !important;
-        display: block;
+        display: block !important;
     }
 
-    /* Parent of the video needs to be positioned so the guide anchors to it */
-    [data-testid="stCameraInput"] > div > div:has(> video),
-    [data-testid="stCameraInput"] > div > div:has(> img) {
-        position: relative !important;
-    }
-
-    /* ---- Four corner marks on the frame edges ---- */
-    [data-testid="stCameraInput"] > div > div:has(> video)::before,
-    [data-testid="stCameraInput"] > div > div:has(> video)::after,
-    [data-testid="stCameraInput"] > div > div:has(> img)::before,
-    [data-testid="stCameraInput"] > div > div:has(> img)::after {
+    /* Four corner marks, anchored to the OUTER container (reliable) */
+    [data-testid="stCameraInput"]::before,
+    [data-testid="stCameraInput"]::after {
         content: "";
         position: absolute;
-        width: 20px; height: 20px;
+        width: 22px;
+        height: 22px;
         border: 2px solid rgba(255,255,255,0.55);
         pointer-events: none;
-        z-index: 3;
+        z-index: 5;
     }
-    [data-testid="stCameraInput"] > div > div:has(> video)::before,
-    [data-testid="stCameraInput"] > div > div:has(> img)::before {
-        top: 12px; left: 12px;
+    [data-testid="stCameraInput"]::before {
+        top: 18px; left: 18px;
         border-right: none; border-bottom: none;
         border-top-left-radius: 4px;
     }
-    [data-testid="stCameraInput"] > div > div:has(> video)::after,
-    [data-testid="stCameraInput"] > div > div:has(> img)::after {
-        top: 12px; right: 12px;
+    [data-testid="stCameraInput"]::after {
+        top: 18px; right: 18px;
         border-left: none; border-bottom: none;
         border-top-right-radius: 4px;
     }
 
-    /* ---- 62% centered pulsing guide square (the one the crop matches) ---- */
-    [data-testid="stCameraInput"] > div > div:has(> video) > *:first-child::before {
-        /* fake — we add the guide via an injected div below for reliability */
-    }
-    .nq-guide-sq {
-        position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 62%;
-        aspect-ratio: 1;
-        border-radius: 20px;
-        border: 2.5px solid rgba(200,185,255,0.9);
-        pointer-events: none;
-        z-index: 4;
-        animation: nq-guide-pulse 2.2s ease-in-out infinite;
-    }
-    .nq-guide-sq::after {
-        content: "ضع الشيء هنا";
-        position: absolute;
-        bottom: -30px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 12px;
-        font-weight: 600;
-        color: rgba(210,200,255,0.9);
-        white-space: nowrap;
-        font-family: 'Tajawal', sans-serif;
-    }
-    @keyframes nq-guide-pulse {
-        0%,100% {
-            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
-                        0 0 18px 4px rgba(160,140,255,0.35),
-                        inset 0 0 18px 2px rgba(160,140,255,0.10);
-            border-color: rgba(200,185,255,0.85);
-        }
-        50% {
-            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
-                        0 0 32px 10px rgba(160,140,255,0.55),
-                        inset 0 0 24px 6px rgba(160,140,255,0.20);
-            border-color: rgba(220,210,255,1);
-        }
-    }
-
-    /* ---- Scan line sweep inside the guide area ---- */
-    .nq-scan-line {
-        position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 62%;
-        aspect-ratio: 1;
-        border-radius: 20px;
-        overflow: hidden;
-        pointer-events: none;
-        z-index: 3;
-    }
-    .nq-scan-line::after {
-        content: "";
-        position: absolute;
-        top: -40%; left: 0; right: 0;
-        height: 40%;
-        background: linear-gradient(transparent, rgba(180,160,255,0.18), transparent);
-        animation: nq-scan 2.8s ease-in-out infinite;
-    }
-    @keyframes nq-scan {
-        0%   { top: -40%; }
-        100% { top: 110%; }
-    }
-
-    /* ---------- Big purple shutter (Streamlit's native capture button) ---------- */
+    /* Restyle Streamlit's native capture button into the reference's shutter */
     [data-testid="stCameraInput"] button {
         width: 72px !important;
         height: 72px !important;
@@ -788,7 +715,7 @@ def show_camera_page():
         color: transparent !important;
         font-size: 0 !important;
         padding: 0 !important;
-        margin: 16px auto 4px !important;
+        margin: 14px auto 6px !important;
         display: block !important;
         box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
         transition: transform 0.12s ease !important;
@@ -797,7 +724,6 @@ def show_camera_page():
     [data-testid="stCameraInput"] button:active {
         transform: scale(0.92) !important;
     }
-    /* Inner purple gradient dot */
     [data-testid="stCameraInput"] button::before {
         content: "";
         position: absolute;
@@ -808,7 +734,7 @@ def show_camera_page():
         background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
     }
 
-    /* ---------- Loader card (during API call) ---------- */
+    /* Loader card during API call */
     .nq-loader-card {
         background: #ffffff;
         border-radius: 28px;
@@ -832,20 +758,6 @@ def show_camera_page():
         font-weight: 800;
         color: #4a3ea0;
         margin-top: 16px;
-    }
-    .nq-loader-dots::after {
-        content: "";
-        display: inline-block;
-        width: 24px;
-        text-align: left;
-        animation: nq-loader-dots 1.2s steps(4, end) infinite;
-    }
-    @keyframes nq-loader-dots {
-        0%   { content: "";    }
-        25%  { content: ".";   }
-        50%  { content: "..";  }
-        75%  { content: "..."; }
-        100% { content: "";    }
     }
     .nq-loader-bar {
         margin: 20px auto 0;
@@ -872,34 +784,6 @@ def show_camera_page():
         100% { left: 100%; }
     }
     </style>
-
-    <!-- JS: inject the guide square + scan line ONCE the camera DOM is present.
-         Runs on every render; bails if elements already exist. -->
-    <script>
-    (function () {
-        function injectGuide() {
-            const cam = window.parent.document.querySelector('[data-testid="stCameraInput"]');
-            if (!cam) return false;
-            // Find the video (live) OR captured img element's parent
-            const mediaParent = cam.querySelector('div:has(> video), div:has(> img)');
-            if (!mediaParent) return false;
-            // If we've already injected, skip
-            if (mediaParent.querySelector('.nq-guide-sq')) return true;
-            const guide = document.createElement('div');
-            guide.className = 'nq-guide-sq';
-            const scan  = document.createElement('div');
-            scan.className  = 'nq-scan-line';
-            mediaParent.appendChild(scan);
-            mediaParent.appendChild(guide);
-            return true;
-        }
-        // Try immediately, then retry a few times in case Streamlit hasn't rendered yet
-        let tries = 0;
-        const timer = setInterval(function () {
-            if (injectGuide() || ++tries > 20) clearInterval(timer);
-        }, 120);
-    })();
-    </script>
     """, unsafe_allow_html=True)
 
     st.markdown("""
@@ -912,7 +796,7 @@ def show_camera_page():
     # ========================================================================
     # STATE MACHINE:
     #   pending_capture (bytes) → confirm screen (✅ / 🔄)
-    #   captured_image  (bytes) → photo processed, show result
+    #   captured_image  (bytes) → processed by API, show next-step buttons
     #   neither                 → live camera
     # ========================================================================
     captured = st.session_state.get("captured_image")
@@ -942,7 +826,7 @@ def show_camera_page():
                 st.rerun()
         return
 
-    # --------- State 2: photo taken, awaiting confirmation ---------
+    # --------- State 2: photo taken, awaiting user confirmation ---------
     if pending:
         st.markdown('<div class="nq-instruction">'
                     '<span class="nq-instruction-icon">👀</span>'
@@ -972,7 +856,7 @@ def show_camera_page():
             loader_placeholder.markdown("""
             <div class="nq-loader-card">
               <div class="nq-loader-emoji">🤖</div>
-              <div class="nq-loader-text">نطوق يفكر<span class="nq-loader-dots"></span></div>
+              <div class="nq-loader-text">نطوق يفكر...</div>
               <div class="nq-loader-bar"></div>
             </div>
             """, unsafe_allow_html=True)
@@ -993,16 +877,16 @@ def show_camera_page():
     st.markdown(
         '<div class="nq-instruction">'
         '<span class="nq-instruction-icon">🎯</span>'
-        '<p class="nq-instruction-text">ضع الشيء داخل المربع المضيء ثم التقط الصورة</p>'
+        '<p class="nq-instruction-text">ضع الشيء داخل الإطار ثم اضغطي على الزر البنفسجي</p>'
         '</div>',
         unsafe_allow_html=True,
     )
 
     cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
 
-    # As soon as a snap arrives, crop to 62% center-square and stash as pending
+    # On snap: crop to 62% centered square (matches the visual framing) and stash as pending
     if cam_shot is not None:
-        cropped_bytes = _center_square_crop(cam_shot.getvalue())  # 62% default
+        cropped_bytes = _center_square_crop(cam_shot.getvalue())
         st.session_state.pending_capture = cropped_bytes
         st.rerun()
 
