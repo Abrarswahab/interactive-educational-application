@@ -2,6 +2,7 @@ import streamlit as st
 from PIL import Image
 import os
 import time
+import requests
 
 st.set_page_config(page_title="المستكشف الذكي", page_icon="🌟", layout="wide")
 
@@ -13,26 +14,58 @@ kids_image_path = "kids.png"
 girl_path = "girl.png"
 boy_path = "boy.png"
 
+# رابط الـ API
+API_URL = "http://127.0.0.1:8000"
+
 # =============================
 # Session State
 # =============================
 if "selected_character" not in st.session_state:
     st.session_state.selected_character = ""
-
 if "current_page" not in st.session_state:
     st.session_state.current_page = "welcome"
-
 if "captured_image" not in st.session_state:
     st.session_state.captured_image = None
-
 if "captured_name" not in st.session_state:
     st.session_state.captured_name = ""
-
 if "predicted_label" not in st.session_state:
-    st.session_state.predicted_label = "شخص"
-
+    st.session_state.predicted_label = ""
 if "predicted_conf" not in st.session_state:
-    st.session_state.predicted_conf = "٩٤٪"
+    st.session_state.predicted_conf = ""
+if "predicted_emoji" not in st.session_state:
+    st.session_state.predicted_emoji = "❓"
+if "predicted_spelling" not in st.session_state:
+    st.session_state.predicted_spelling = []
+
+# =============================
+# API helpers
+# =============================
+def predict_image(uploaded_file):
+    try:
+        files = {
+            "file": (
+                uploaded_file.name,
+                uploaded_file.getvalue(),
+                uploaded_file.type or "image/jpeg",
+            )
+        }
+        response = requests.post(f"{API_URL}/predict", files=files, timeout=30)
+        if response.status_code == 200:
+            return response.json()
+        return {"error": f"API error: {response.status_code}", "details": response.text}
+    except requests.exceptions.ConnectionError:
+        return {"error": "تعذر الاتصال بالذكاء الاصطناعي. تأكدي أن FastAPI شغال."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def reset_prediction():
+    st.session_state.captured_image = None
+    st.session_state.captured_name = ""
+    st.session_state.predicted_label = ""
+    st.session_state.predicted_conf = ""
+    st.session_state.predicted_emoji = "❓"
+    st.session_state.predicted_spelling = []
 
 # =============================
 # Shared CSS
@@ -104,7 +137,6 @@ html, body,
     text-align: right;
     line-height: 1.1;
 }
-
 .welcome-subtitle {
     font-size: 30px;
     font-weight: 800;
@@ -112,7 +144,6 @@ html, body,
     margin-bottom: 18px;
     text-align: right;
 }
-
 .welcome-desc {
     font-size: 24px;
     color: #7a849f;
@@ -120,7 +151,6 @@ html, body,
     text-align: right;
     margin-bottom: 22px;
 }
-
 .main-title {
     font-size: 64px;
     font-weight: 900;
@@ -129,14 +159,12 @@ html, body,
     margin-bottom: 18px;
     text-align: right;
 }
-
 .highlight {
     background: linear-gradient(90deg, #d9ccff, #c7e3ff);
     color: #6d4cff;
     padding: 6px 16px;
     border-radius: 16px;
 }
-
 .sub-text {
     font-size: 22px;
     color: #6b7690;
@@ -144,7 +172,6 @@ html, body,
     margin-bottom: 20px;
     text-align: right;
 }
-
 .pill {
     display: inline-block;
     background: rgba(255,255,255,0.98);
@@ -157,7 +184,6 @@ html, body,
     box-shadow: 0 6px 16px rgba(0,0,0,0.05);
     font-size: 18px;
 }
-
 .message-box {
     background: #f2d8a4;
     color: #5f462f;
@@ -169,14 +195,12 @@ html, body,
     margin-top: 20px;
     margin-bottom: 15px;
 }
-
 .note {
     text-align: center;
     color: #7b85a1;
     font-size: 17px;
     margin-top: 10px;
 }
-
 .section-title {
     text-align: center;
     font-size: 34px;
@@ -185,26 +209,22 @@ html, body,
     margin-bottom: 20px;
 }
 
-
 .card:hover {
     transform: translateY(-6px);
     box-shadow: 0 18px 34px rgba(42,58,95,0.12);
 }
-
 .img-box-girl {
     background: #efd7ee;
     border-radius: 24px;
     padding: 20px;
     margin-bottom: 18px;
 }
-
 .img-box-boy {
     background: #dbeaf7;
     border-radius: 24px;
     padding: 20px;
     margin-bottom: 18px;
 }
-
 .char-name {
     font-size: 30px;
     font-weight: 900;
@@ -213,7 +233,6 @@ html, body,
     margin-bottom: 10px;
     text-align: center;
 }
-
 .char-desc {
     font-size: 18px;
     color: #6d7792;
@@ -221,7 +240,6 @@ html, body,
     min-height: 120px;
     text-align: center;
 }
-
 .floating-image {
     animation: floatImage 3.5s ease-in-out infinite;
     filter: drop-shadow(0 20px 28px rgba(0, 0, 0, 0.10));
@@ -246,7 +264,6 @@ html, body,
   box-shadow:0 2px 12px rgba(123,111,212,0.18);
   font-size:22px; color:var(--purple); font-weight:900; flex-shrink:0;
 }
-
 .nq-instruction {
   background:var(--white); border-radius:20px; padding:12px 18px;
   display:flex; align-items:center; gap:12px; box-shadow:0 2px 14px rgba(123,111,212,0.10);
@@ -254,7 +271,6 @@ html, body,
 }
 .nq-instruction-icon { font-size:26px; flex-shrink:0; }
 .nq-instruction-text { font-size:15px; font-weight:500; color:var(--text-mid); line-height:1.5; }
-
 .nq-cam-frame {
   width:100%; aspect-ratio:3/4; border-radius:30px; overflow:hidden; position:relative;
   background:#1a1a2e; box-shadow:0 8px 40px rgba(91,71,180,0.28); margin-bottom:18px;
@@ -287,7 +303,6 @@ html, body,
 }
 .cam-error-icon { font-size:52px; }
 .cam-error-text { font-size:15px; font-weight:600; color:rgba(200,185,255,0.9); line-height:1.5; }
-
 .nq-controls { display:flex; align-items:center; justify-content:center; gap:36px; margin-bottom:16px; }
 .icon-btn {
   width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.82);
@@ -300,7 +315,6 @@ html, body,
 .shutter-inner {
   width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,var(--purple),var(--purple-dark));
 }
-
 .nq-learn-btn {
   display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:18px;
   border-radius:24px; background:linear-gradient(135deg,var(--btn-blue),var(--btn-blue-dark));
@@ -311,7 +325,6 @@ html, body,
   width:30px; height:30px; background:rgba(255,255,255,0.24); border-radius:50%;
   display:flex; align-items:center; justify-content:center; font-size:17px;
 }
-
 .nq-img-card {
   width:100%; border-radius:28px; overflow:hidden; position:relative;
   box-shadow:0 6px 32px rgba(91,71,180,0.18); margin-bottom:16px;
@@ -325,7 +338,6 @@ html, body,
   position:absolute; top:14px; right:14px; background:rgba(76,175,125,0.92); color:white;
   font-size:13px; font-weight:700; padding:6px 14px; border-radius:20px;
 }
-
 .nq-word-card, .nq-spell-card {
   background:var(--white); border-radius:28px; box-shadow:var(--card-shadow); padding:22px; margin-bottom:16px;
   position:relative; overflow:hidden; direction:rtl;
@@ -356,7 +368,6 @@ html, body,
 .wbar:nth-child(5){height:70%} .wbar:nth-child(6){height:55%} .wbar:nth-child(7){height:30%} .wbar:nth-child(8){height:65%}
 .wbar:nth-child(9){height:45%} .wbar:nth-child(10){height:25%}
 .audio-time { font-size:14px; color:var(--text-mid); font-weight:600; min-width:40px; text-align:left; }
-
 .spell-hdr { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
 .spell-bubbles { display:flex; flex-wrap:wrap; gap:10px; flex-direction:row; justify-content:flex-end; margin-bottom:12px; }
 .spell-bubble {
@@ -365,7 +376,6 @@ html, body,
   gap:2px; font-size:24px; font-weight:900; color:var(--purple-dark); box-shadow:0 3px 10px rgba(91,71,180,0.10);
 }
 .ltr-num { font-size:10px; font-weight:600; color:var(--purple-light); line-height:1; }
-
 .nq-pink-btn, .nq-outline-btn {
   display:flex; align-items:center; justify-content:center; gap:12px; width:100%; text-align:center; border-radius:24px;
 }
@@ -376,27 +386,26 @@ html, body,
 .nq-outline-btn {
   padding:15px; background:var(--white); border:1.5px solid var(--purple-light); color:var(--purple); font-size:16px; font-weight:700;
 }
-
 [data-testid="stFileUploaderDropzone"] {
   border:1.5px dashed var(--purple-light) !important; border-radius:16px !important; background:rgba(255,255,255,0.6) !important;
 }
-[data-testid="stBaseButton-primary"] {
-  background:linear-gradient(135deg,var(--btn-blue),var(--btn-blue-dark)) !important; border:none !important; border-radius:20px !important;
-  font-size:17px !important; font-weight:800 !important; padding:14px !important;
-}
-[data-testid="stBaseButton-secondary"] {
-  background:var(--white) !important; border:1.5px solid var(--purple-light) !important; border-radius:20px !important; color:var(--purple) !important;
-  font-weight:700 !important;
-}
-[data-testid="stImage"] img { border-radius:22px; box-shadow:0 4px 20px rgba(91,71,180,0.14); }
-
+/* الأزرار رجعتها أقرب للشكل القديم */
 div.stButton > button {
-  width: 100%; border: none; border-radius: 20px; padding: 0.95rem 1rem; font-size: 20px; font-weight: 800;
-  color: white; background: linear-gradient(135deg, #745cff, #4d96ff); box-shadow: 0 12px 28px rgba(91,110,255,0.28); transition: 0.2s ease;
+  width: 100%;
+  border: none;
+  border-radius: 18px;
+  padding: 0.85rem 1rem;
+  font-size: 18px;
+  font-weight: 800;
+  color: white;
+  background: linear-gradient(135deg, #745cff, #4d96ff);
+  box-shadow: 0 12px 24px rgba(91,110,255,0.24);
+  transition: 0.18s ease;
 }
-div.stButton > button:hover { transform: scale(1.03); }
-.start-btn { max-width: 250px; margin: 32px auto 0 auto; }
-.back-btn { max-width: 190px; margin-bottom: 20px; }
+div.stButton > button:hover { transform: translateY(-2px); }
+.start-btn { max-width: 220px; margin: 28px auto 0 auto; }
+.back-btn { max-width: 170px; margin-bottom: 20px; }
+[data-testid="stImage"] img { border-radius:22px; box-shadow:0 4px 20px rgba(91,71,180,0.14); }
 </style>
 
 <div class="blob-bg">
@@ -587,10 +596,18 @@ def show_camera_page():
         label_visibility="visible",
     )
     if uploaded:
-        data = uploaded.read()
-        st.session_state.captured_image = data
-        st.session_state.captured_name = uploaded.name
-        st.rerun()
+        result = predict_image(uploaded)
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            st.session_state.captured_image = uploaded.getvalue()
+            st.session_state.captured_name = uploaded.name
+            st.session_state.predicted_label = result.get("label", "غير معروف")
+            conf_value = result.get("confidence", 0)
+            st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
+            st.session_state.predicted_emoji = result.get("emoji", "❓")
+            st.session_state.predicted_spelling = result.get("spelling", [])
+            st.rerun()
 
     st.markdown("""
     <div class="nq-controls">
@@ -601,7 +618,7 @@ def show_camera_page():
     """, unsafe_allow_html=True)
 
     if captured:
-        col1, col2, col3 = st.columns([1.2, 1.8, 1])
+        col1, col2, col3 = st.columns([1.1, 1.9, 1])
         with col1:
             if st.button("⬅ رجوع", use_container_width=True, key="camera_back"):
                 go_to_page("characters")
@@ -610,8 +627,7 @@ def show_camera_page():
                 go_to_page("results")
         with col3:
             if st.button("↩️ إعادة", use_container_width=True, key="retake"):
-                st.session_state.captured_image = None
-                st.session_state.captured_name = ""
+                reset_prediction()
                 st.rerun()
     else:
         st.markdown("""
@@ -640,8 +656,9 @@ def show_results_page():
     """, unsafe_allow_html=True)
 
     captured = st.session_state.get("captured_image")
-    word = st.session_state.get("predicted_label", "شخص")
-    conf = st.session_state.get("predicted_conf", "٩٤٪")
+    word = st.session_state.get("predicted_label", "غير معروف")
+    conf = st.session_state.get("predicted_conf", "0٪")
+    emoji = st.session_state.get("predicted_emoji", "❓")
 
     st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
     if captured:
@@ -661,7 +678,7 @@ def show_results_page():
       <div class="word-lbl">تعرّفت على:</div>
       <div class="word-row">
         <div class="word-left">
-          <div class="word-emoji">👤</div>
+          <div class="word-emoji">{emoji}</div>
           <div class="word-arabic">{word}</div>
         </div>
         <div class="conf-pill">{conf}</div>
@@ -680,7 +697,7 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    letters = list(word)
+    letters = st.session_state.get("predicted_spelling", []) or list(word)
     bubbles = "".join(
         f'<div class="spell-bubble"><span>{ch}</span><span class="ltr-num">{to_eastern(i + 1)}</span></div>'
         for i, ch in enumerate(letters)
@@ -697,19 +714,18 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="nq-pink-btn">📷 التقط صورة أخرى!</div>
-    <div class="nq-outline-btn">⭐ احفظ هذه الكلمة</div>
-    <br>
-    """, unsafe_allow_html=True)
+    tts_url = f"{API_URL}/tts?word={word}"
+    st.audio(tts_url)
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("📷 التقط صورة أخرى", use_container_width=True, key="capture_again"):
-            st.session_state.captured_image = None
-            st.session_state.captured_name = ""
+        if st.button("⬅ رجوع", use_container_width=True, key="results_back"):
             go_to_page("camera")
     with col2:
+        if st.button("📷 التقط صورة أخرى", use_container_width=True, key="capture_again"):
+            reset_prediction()
+            go_to_page("camera")
+    with col3:
         if st.button("⭐ احفظ الكلمة", use_container_width=True, type="primary", key="save_word"):
             st.success("✅ تم الحفظ!")
 
@@ -717,7 +733,6 @@ def show_results_page():
 # Router
 # =============================
 page = st.session_state.current_page
-
 if page == "welcome":
     show_welcome_page()
 elif page == "characters":
