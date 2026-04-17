@@ -2,8 +2,9 @@ import streamlit as st
 from PIL import Image
 import os
 import time
+import base64
+import io
 import requests
-from urllib.parse import quote
 
 st.set_page_config(page_title="المستكشف الذكي", page_icon="🌟", layout="wide")
 
@@ -16,11 +17,7 @@ girl_path = "girl.png"
 boy_path = "boy.png"
 
 # =============================
-# API URL — resolved in this order:
-# 1) Streamlit secrets  (recommended for deployment)
-# 2) Environment variable API_URL
-# 3) Railway production URL  (fallback)
-# 4) localhost                (only used if nothing else is set)
+# API URL — resolved from secrets / env / Railway default
 # =============================
 def _resolve_api_url() -> str:
     try:
@@ -43,23 +40,41 @@ if "selected_character" not in st.session_state:
 if "current_page" not in st.session_state:
     st.session_state.current_page = "welcome"
 if "captured_image" not in st.session_state:
-    st.session_state.captured_image = None
+    st.session_state.captured_image = None          # original image bytes (what the user uploaded)
 if "captured_name" not in st.session_state:
     st.session_state.captured_name = ""
+if "annotated_image" not in st.session_state:
+    st.session_state.annotated_image = None         # raw PNG bytes with masks + Arabic label burned in
 if "predicted_label" not in st.session_state:
     st.session_state.predicted_label = ""
+if "predicted_label_en" not in st.session_state:
+    st.session_state.predicted_label_en = ""
 if "predicted_conf" not in st.session_state:
     st.session_state.predicted_conf = ""
-if "predicted_emoji" not in st.session_state:
-    st.session_state.predicted_emoji = "❓"
+if "predicted_coverage" not in st.session_state:
+    st.session_state.predicted_coverage = 0.0
 if "predicted_spelling" not in st.session_state:
     st.session_state.predicted_spelling = []
+if "audio_word" not in st.session_state:
+    st.session_state.audio_word = None              # data URI string
+if "audio_letters" not in st.session_state:
+    st.session_state.audio_letters = []             # list of {letter, audio}
 
 # =============================
 # API helpers
 # =============================
+def _decode_data_uri(data_uri: str) -> bytes:
+    """Turn 'data:audio/mp3;base64,...' (or image equivalent) into raw bytes."""
+    if not data_uri or "," not in data_uri:
+        return b""
+    try:
+        return base64.b64decode(data_uri.split(",", 1)[1])
+    except Exception:
+        return b""
+
+
 def check_api_health() -> dict:
-    """Quick ping so we can tell the user if the backend is down BEFORE they upload."""
+    """Ping the backend so we can show status before the user wastes a capture."""
     try:
         r = requests.get(f"{API_URL}/health", timeout=5)
         if r.status_code == 200:
@@ -73,50 +88,68 @@ def check_api_health() -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def predict_image(image_source):
+def segment_image(image_source) -> dict:
     """
-    Accepts either:
-      - a Streamlit UploadedFile (from st.file_uploader or st.camera_input)
-      - a (filename, bytes, mime) tuple
+    Send an image to /segment. Accepts:
+      - a Streamlit UploadedFile (file_uploader or camera_input)
       - raw bytes
+    Returns the parsed JSON response, or {"error": "..."} on failure.
     """
     try:
         if hasattr(image_source, "getvalue"):
             name = getattr(image_source, "name", "capture.jpg")
             data = image_source.getvalue()
             mime = getattr(image_source, "type", None) or "image/jpeg"
-        elif isinstance(image_source, tuple) and len(image_source) == 3:
-            name, data, mime = image_source
         elif isinstance(image_source, (bytes, bytearray)):
             name, data, mime = "capture.jpg", bytes(image_source), "image/jpeg"
         else:
             return {"error": "صيغة الصورة غير مدعومة."}
 
         files = {"file": (name, data, mime)}
-        response = requests.post(f"{API_URL}/predict", files=files, timeout=60)
+        # YOLO on CPU + TTS calls can take a while on Railway's free tier
+        response = requests.post(f"{API_URL}/segment", files=files, timeout=120)
+
         if response.status_code == 200:
             return response.json()
-        # Try to surface the FastAPI `detail` field if present
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
         return {"error": f"API error {response.status_code}: {detail}"}
     except requests.exceptions.ConnectionError:
-        return {"error": f"تعذر الاتصال بالذكاء الاصطناعي على {API_URL}. تأكدي أن الخادم شغال."}
+        return {"error": f"تعذر الاتصال بالخادم على {API_URL}."}
     except requests.exceptions.Timeout:
         return {"error": "النموذج استغرق وقتاً طويلاً — حاولي مرة أخرى."}
     except Exception as e:
         return {"error": str(e)}
 
 
+def apply_segmentation_result(source_bytes: bytes, source_name: str, result: dict) -> None:
+    """Copy the fields from the API response into session state."""
+    st.session_state.captured_image = source_bytes
+    st.session_state.captured_name = source_name
+    st.session_state.annotated_image = _decode_data_uri(result.get("annotated_image", ""))
+    st.session_state.predicted_label = result.get("label_ar", "غير معروف")
+    st.session_state.predicted_label_en = result.get("label_en", "")
+    conf_value = result.get("confidence", 0) or 0
+    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
+    st.session_state.predicted_coverage = result.get("coverage_percent", 0.0)
+    st.session_state.predicted_spelling = result.get("spelling", [])
+    st.session_state.audio_word = result.get("audio_word")
+    st.session_state.audio_letters = result.get("audio_letters", [])
+
+
 def reset_prediction():
     st.session_state.captured_image = None
     st.session_state.captured_name = ""
+    st.session_state.annotated_image = None
     st.session_state.predicted_label = ""
+    st.session_state.predicted_label_en = ""
     st.session_state.predicted_conf = ""
-    st.session_state.predicted_emoji = "❓"
+    st.session_state.predicted_coverage = 0.0
     st.session_state.predicted_spelling = []
+    st.session_state.audio_word = None
+    st.session_state.audio_letters = []
 
 # =============================
 # Shared CSS
@@ -626,14 +659,13 @@ def show_camera_page():
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
     else:
-        # API health banner — so kids/parents know if the backend is reachable
+        # API health banner
         health = check_api_health()
         if health["ok"]:
-            st.success(f"✅ الخادم متصل — {API_URL}")
+            st.success(f"✅ الخادم متصل")
         else:
             st.error(f"⚠️ {health['error']}  \nالخادم: {API_URL}")
 
-        # Real camera + upload, in two tabs
         tab_cam, tab_upload = st.tabs(["📷 الكاميرا", "🖼️ رفع صورة"])
 
         with tab_cam:
@@ -641,17 +673,11 @@ def show_camera_page():
             cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
             if cam_shot is not None:
                 with st.spinner("🤖 جاري التعرف على الصورة..."):
-                    result = predict_image(cam_shot)
+                    result = segment_image(cam_shot)
                 if "error" in result:
                     st.error(result["error"])
                 else:
-                    st.session_state.captured_image = cam_shot.getvalue()
-                    st.session_state.captured_name = cam_shot.name or "camera.jpg"
-                    st.session_state.predicted_label = result.get("label", "غير معروف")
-                    conf_value = result.get("confidence", 0) or 0
-                    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
-                    st.session_state.predicted_emoji = result.get("emoji", "❓")
-                    st.session_state.predicted_spelling = result.get("spelling", [])
+                    apply_segmentation_result(cam_shot.getvalue(), cam_shot.name or "camera.jpg", result)
                     st.rerun()
 
         with tab_upload:
@@ -663,17 +689,11 @@ def show_camera_page():
             )
             if uploaded:
                 with st.spinner("🤖 جاري التعرف على الصورة..."):
-                    result = predict_image(uploaded)
+                    result = segment_image(uploaded)
                 if "error" in result:
                     st.error(result["error"])
                 else:
-                    st.session_state.captured_image = uploaded.getvalue()
-                    st.session_state.captured_name = uploaded.name
-                    st.session_state.predicted_label = result.get("label", "غير معروف")
-                    conf_value = result.get("confidence", 0) or 0
-                    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
-                    st.session_state.predicted_emoji = result.get("emoji", "❓")
-                    st.session_state.predicted_spelling = result.get("spelling", [])
+                    apply_segmentation_result(uploaded.getvalue(), uploaded.name, result)
                     st.rerun()
 
     st.markdown("""
@@ -723,12 +743,19 @@ def show_results_page():
     """, unsafe_allow_html=True)
 
     captured = st.session_state.get("captured_image")
+    annotated = st.session_state.get("annotated_image")
     word = st.session_state.get("predicted_label", "غير معروف")
     conf = st.session_state.get("predicted_conf", "0٪")
-    emoji = st.session_state.get("predicted_emoji", "❓")
+    coverage = st.session_state.get("predicted_coverage", 0.0)
+    audio_word = st.session_state.get("audio_word")
+    audio_letters = st.session_state.get("audio_letters", [])
 
+    # --- Image card: toggle between the original and the segmented version
     st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
-    if captured:
+    show_seg = st.toggle("عرض الصورة مع تمييز الجزء المكتشف", value=True, key="show_seg_toggle")
+    if show_seg and annotated:
+        st.image(annotated, use_container_width=True)
+    elif captured:
         st.image(captured, use_container_width=True)
     else:
         st.markdown("""
@@ -737,39 +764,35 @@ def show_results_page():
           <span>الصورة الملتقطة تظهر هنا</span>
         </div>
         """, unsafe_allow_html=True)
-    st.markdown('<div class="nq-seg-badge">✓ تم التعرف</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="nq-seg-badge">✓ تم التعرف ({coverage:.1f}%)</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # --- Word card
     st.markdown(f"""
     <div class="nq-word-card">
       <div class="word-lbl">تعرّفت على:</div>
       <div class="word-row">
         <div class="word-left">
-          <div class="word-emoji">{emoji}</div>
           <div class="word-arabic">{word}</div>
         </div>
         <div class="conf-pill">{conf}</div>
       </div>
       <div class="audio-lbl">🔊 استمع للكلمة</div>
-      <div class="audio-row">
-        <div class="audio-time">0:00</div>
-        <div class="audio-wave">
-          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-          <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-          <div class="wbar"></div>
-        </div>
-        <div class="play-btn">▶</div>
-      </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # --- Word audio (from the API's bundled TTS)
+    if audio_word:
+        st.audio(_decode_data_uri(audio_word), format="audio/mp3")
+    else:
+        st.info("🔇 لم يتوفر صوت لهذه الكلمة")
+
+    # --- Spelling bubbles (visual)
     letters = st.session_state.get("predicted_spelling", []) or list(word)
     bubbles = "".join(
         f'<div class="spell-bubble"><span>{ch}</span><span class="ltr-num">{to_eastern(i + 1)}</span></div>'
         for i, ch in enumerate(letters)
     )
-
     st.markdown(f"""
     <div class="nq-spell-card">
       <div class="spell-hdr">
@@ -777,12 +800,20 @@ def show_results_page():
         <span class="spell-hdr-lbl">كيف تُكتب؟</span>
       </div>
       <div class="spell-bubbles">{bubbles}</div>
-      <div class="spell-hint">اضغط على أي حرف لسماعه</div>
+      <div class="spell-hint">استمع لكل حرف بالترتيب</div>
     </div>
     """, unsafe_allow_html=True)
 
-    tts_url = f"{API_URL}/tts?word={quote(word)}"
-    st.audio(tts_url)
+    # --- Per-letter audio (one player per letter)
+    if audio_letters:
+        letter_cols = st.columns(min(len(audio_letters), 6))
+        for i, item in enumerate(audio_letters):
+            col = letter_cols[i % len(letter_cols)]
+            with col:
+                st.markdown(f"<div style='text-align:center;font-size:28px;font-weight:900;color:#18264a'>{item.get('letter','')}</div>", unsafe_allow_html=True)
+                audio_data = _decode_data_uri(item.get("audio", ""))
+                if audio_data:
+                    st.audio(audio_data, format="audio/mp3")
 
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
