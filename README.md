@@ -168,8 +168,8 @@ streamlit run kidsapp.py
 
 ## 👩‍💻 Team
 
-Lana Aljuaid
-Abdularhmn
+- Lana Aljuaid
+- Abdularhmn
 Abrar
 Mohamed 
 ---
