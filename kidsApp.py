@@ -61,8 +61,8 @@ def _decode_data_uri(data_uri: str) -> bytes:
         return b""
 
 
-def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
-    """Crop to a centered square matching the on-screen guide."""
+def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.65) -> bytes:
+    """Crop to a centered square matching the on-screen guide (65% of min dimension)."""
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
