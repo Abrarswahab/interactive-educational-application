@@ -472,7 +472,12 @@ async def segment(
 
     # ---- Cloud API branches (classification only — no masks) -------------
     elif model == "google_vision":
-        r = run_google_vision(raw)
+        # Convert to standardized JPEG bytes to fix invalid format errors
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        standardized_raw = buf.getvalue()
+
+        r = run_google_vision(standardized_raw)
         if r is None:
             raise HTTPException(status_code=422,
                                 detail="Google Vision لم تتعرف على أي شيء في الصورة.")
