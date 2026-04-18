@@ -1,5 +1,18 @@
+"""
+Smart Explorer — Streamlit frontend (v6.0)
+
+Changes in this version:
+  1. 3 models only: custom (default), google_vision, imagga. No auto, no fallback.
+  2. Page 1: compact (no scroll), full-width "أستكشف!" button.
+  3. Page 2: side-by-side mobile cards, full-width select buttons, cleaned copy.
+  4. Page 3: no top-right emoji, prominent picker, gendered instruction ("ضع" / "ضعي").
+  5. Page 4 → Page 6 directly (no intermediate "learn this pic" step).
+  6. Page 6: English label burned over the segmentation image (covers Arabic),
+             Arabic word + spelling + meaning shown, TTS autoplays on load.
+"""
+
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import os
 import time
 import base64
@@ -13,57 +26,59 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# =============================
-# الملفات المطلوبة في نفس المجلد
-# =============================
+# =============================================================================
+# Assets
+# =============================================================================
 logo_path = "logo.png"
-kids_image_path = "kids.png"
 girl_path = "girl.png"
-boy_path = "boy.png"
+boy_path  = "boy.png"
+# Optional: a font for the English label we burn client-side. Falls back to PIL default.
+ENGLISH_FONT_CANDIDATES = [
+    "DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "arial.ttf",
+]
 
-# =============================
-# API URL — hardcoded Railway backend
-# (change this one line if your Railway domain changes)
-# =============================
+# =============================================================================
+# Backend config
+# =============================================================================
 API_URL = "https://interactive-educational-application-production.up.railway.app"
 
-# =============================
-# Session State
-# =============================
-if "selected_character" not in st.session_state:
-    st.session_state.selected_character = ""
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "welcome"
-if "captured_image" not in st.session_state:
-    st.session_state.captured_image = None          # original image bytes (what the user uploaded)
-if "captured_name" not in st.session_state:
-    st.session_state.captured_name = ""
-if "annotated_image" not in st.session_state:
-    st.session_state.annotated_image = None         # raw PNG bytes with masks + Arabic label burned in
-if "predicted_label" not in st.session_state:
-    st.session_state.predicted_label = ""
-if "predicted_label_en" not in st.session_state:
-    st.session_state.predicted_label_en = ""
-if "predicted_conf" not in st.session_state:
-    st.session_state.predicted_conf = ""
-if "predicted_coverage" not in st.session_state:
-    st.session_state.predicted_coverage = 0.0
-if "predicted_spelling" not in st.session_state:
-    st.session_state.predicted_spelling = []
-if "audio_word" not in st.session_state:
-    st.session_state.audio_word = None              # data URI string
-if "audio_letters" not in st.session_state:
-    st.session_state.audio_letters = []             # list of {letter, audio}
-if "audio_combined" not in st.session_state:
-    st.session_state.audio_combined = None          # word → spelling → word, as one track
-if "pending_capture" not in st.session_state:
-    st.session_state.pending_capture = None         # image bytes awaiting ✅/🔄 confirmation
+# The 3 models we support in this build.
+# `custom` is the default and is always selected at startup.
+ALLOWED_MODELS = {"custom", "google_vision", "imagga"}
+DEFAULT_MODEL  = "custom"
 
-# =============================
-# API helpers
-# =============================
+# =============================================================================
+# Session state
+# =============================================================================
+_DEFAULTS = {
+    "selected_character": "",          # "بنت" | "ولد"
+    "current_page":       "welcome",    # welcome | characters | camera | results
+    "captured_image":     None,
+    "annotated_image":    None,         # bytes returned by backend (has Arabic burned in for YOLO)
+    "predicted_label":    "",           # Arabic word
+    "predicted_label_en": "",           # English label (used for masking image label)
+    "predicted_conf":     "",
+    "predicted_coverage": 0.0,
+    "predicted_spelling": [],
+    "audio_word":         None,
+    "audio_letters":      [],
+    "audio_combined":     None,
+    "pending_capture":    None,
+    "model_used":         "",
+    "tts_voice":          "",
+    "selected_model":     DEFAULT_MODEL,
+    "audio_autoplayed":   False,        # so we only autoplay once per result
+}
+for k, v in _DEFAULTS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# =============================================================================
+# Helpers
+# =============================================================================
 def _decode_data_uri(data_uri: str) -> bytes:
-    """Turn 'data:audio/mp3;base64,...' (or image equivalent) into raw bytes."""
     if not data_uri or "," not in data_uri:
         return b""
     try:
@@ -73,19 +88,12 @@ def _decode_data_uri(data_uri: str) -> bytes:
 
 
 def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
-    """
-    Crop the captured image to a centered square matching the on-screen guide.
-    Mirrors the reference HTML: the guide square covers `guide_ratio` (default 62%)
-    of the shorter frame side, centered. This is what the user visually frames
-    inside the pulsing purple square, so we cut exactly that out.
-    Returns JPEG bytes. Falls back to the original if PIL fails.
-    """
     try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img  = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
         side = int(min(w, h) * guide_ratio)
         left = (w - side) // 2
-        top = (h - side) // 2
+        top  = (h - side) // 2
         cropped = img.crop((left, top, left + side, top + side))
         buf = io.BytesIO()
         cropped.save(buf, format="JPEG", quality=92)
@@ -94,28 +102,94 @@ def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
         return image_bytes
 
 
-def check_api_health() -> dict:
-    """Ping the backend so we can show status before the user wastes a capture."""
+def _load_english_font(size: int = 36) -> ImageFont.FreeTypeFont:
+    for candidate in ENGLISH_FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def overlay_english_label(annotated_bytes: bytes, english_label: str, confidence_pct: float) -> bytes:
+    """
+    Take the segmentation image the backend returned (which has an Arabic label
+    burned in the top-right) and paint a fresh English label on top of it.
+    Returns PNG bytes.
+    """
+    if not annotated_bytes or not english_label:
+        return annotated_bytes
+
     try:
-        r = requests.get(f"{API_URL}/health", timeout=5)
+        img  = Image.open(io.BytesIO(annotated_bytes)).convert("RGB")
+        draw = ImageDraw.Draw(img, "RGBA")
+        font = _load_english_font(size=max(24, img.width // 18))
+
+        text = f"{english_label}  {confidence_pct:.0f}%"
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        # Cover the same top-right region the backend used, a bit larger to ensure
+        # the Arabic label underneath is fully hidden.
+        pad_x, pad_y = 16, 12
+        box_w = tw + pad_x * 2
+        box_h = th + pad_y * 2
+        x = img.width - box_w - 16
+        y = 16
+
+        # Opaque dark background so Arabic underneath can't show through
+        draw.rectangle([x, y, x + box_w, y + box_h], fill=(30, 27, 60, 245))
+        # Subtle inner border
+        draw.rectangle(
+            [x + 2, y + 2, x + box_w - 2, y + box_h - 2],
+            outline=(180, 170, 255, 200),
+            width=2,
+        )
+        draw.text((x + pad_x, y + pad_y - 2), text, font=font, fill=(255, 255, 255))
+
+        out = io.BytesIO()
+        img.save(out, format="PNG", optimize=True)
+        return out.getvalue()
+    except Exception:
+        return annotated_bytes
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_available_models() -> list:
+    """Fetch models from backend and keep only the 3 we allow."""
+    fallback = [
+        {"id": "custom",        "name_ar": "نموذج الأطفال", "emoji": "🎯",
+         "num_classes_label": "82",    "available": True,
+         "description_ar": "مدرّب على الأشياء المألوفة للأطفال."},
+        {"id": "google_vision", "name_ar": "Google Vision", "emoji": "🌐",
+         "num_classes_label": "آلاف",  "available": False,
+         "description_ar": "نموذج سحابي يغطي آلاف الفئات."},
+        {"id": "imagga",        "name_ar": "Imagga",        "emoji": "🏷️",
+         "num_classes_label": "3000+", "available": False,
+         "description_ar": "نموذج سحابي يوفر أكثر من 3000 وسم للصور."},
+    ]
+
+    try:
+        r = requests.get(f"{API_URL}/models", timeout=8)
         if r.status_code == 200:
-            return {"ok": True, "data": r.json()}
-        return {"ok": False, "error": f"الخادم رد بـ {r.status_code}"}
-    except requests.exceptions.ConnectionError:
-        return {"ok": False, "error": "تعذر الاتصال بالخادم."}
-    except requests.exceptions.Timeout:
-        return {"ok": False, "error": "انتهت مهلة الاتصال بالخادم."}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+            all_models = r.json().get("models", [])
+            kept = [m for m in all_models if m.get("id") in ALLOWED_MODELS]
+            if kept:
+                # Preserve the custom → google_vision → imagga order
+                ordered = []
+                for wanted in ("custom", "google_vision", "imagga"):
+                    for m in kept:
+                        if m["id"] == wanted:
+                            ordered.append(m)
+                            break
+                return ordered
+    except Exception:
+        pass
+    return fallback
 
 
-def segment_image(image_source) -> dict:
-    """
-    Send an image to /segment. Accepts:
-      - a Streamlit UploadedFile (file_uploader or camera_input)
-      - raw bytes
-    Returns the parsed JSON response, or {"error": "..."} on failure.
-    """
+def segment_image(image_source, model_id: str = DEFAULT_MODEL) -> dict:
+    """POST image to /segment?model=<id>. Returns the parsed JSON."""
     try:
         if hasattr(image_source, "getvalue"):
             name = getattr(image_source, "name", "capture.jpg")
@@ -128,10 +202,11 @@ def segment_image(image_source) -> dict:
         else:
             return {"error": "صيغة الصورة غير مدعومة."}
 
-        files = {"file": (name, data, mime)}
-        # YOLO on CPU + TTS calls can take a while on Railway's free tier
-        response = requests.post(f"{API_URL}/segment", files=files, timeout=120)
-
+        files    = {"file": (name, data, mime)}
+        params   = {"model": model_id or DEFAULT_MODEL}
+        response = requests.post(
+            f"{API_URL}/segment", files=files, params=params, timeout=120,
+        )
         if response.status_code == 200:
             return response.json()
         try:
@@ -142,85 +217,77 @@ def segment_image(image_source) -> dict:
     except requests.exceptions.ConnectionError:
         return {"error": f"تعذر الاتصال بالخادم على {API_URL}."}
     except requests.exceptions.Timeout:
-        return {"error": "النموذج استغرق وقتاً طويلاً — حاولي مرة أخرى."}
+        return {"error": "النموذج استغرق وقتاً طويلاً — حاول مرة أخرى."}
     except Exception as e:
         return {"error": str(e)}
 
 
-def apply_segmentation_result(source_bytes: bytes, source_name: str, result: dict) -> None:
-    """Copy the fields from the API response into session state."""
-    st.session_state.captured_image = source_bytes
-    st.session_state.captured_name = source_name
-    st.session_state.annotated_image = _decode_data_uri(result.get("annotated_image", ""))
-    st.session_state.predicted_label = result.get("label_ar", "غير معروف")
+def apply_segmentation_result(source_bytes: bytes, result: dict) -> None:
+    st.session_state.captured_image     = source_bytes
+    st.session_state.annotated_image    = _decode_data_uri(result.get("annotated_image", ""))
+    st.session_state.predicted_label    = result.get("label_ar", "غير معروف")
     st.session_state.predicted_label_en = result.get("label_en", "")
     conf_value = result.get("confidence", 0) or 0
-    st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
+    st.session_state.predicted_conf     = f"{int(conf_value * 100)}٪"
     st.session_state.predicted_coverage = result.get("coverage_percent", 0.0)
     st.session_state.predicted_spelling = result.get("spelling", [])
-    st.session_state.audio_word = result.get("audio_word")
-    st.session_state.audio_letters = result.get("audio_letters", [])
-    st.session_state.audio_combined = result.get("audio_combined")
+    st.session_state.audio_word         = result.get("audio_word")
+    st.session_state.audio_letters      = result.get("audio_letters", [])
+    st.session_state.audio_combined     = result.get("audio_combined")
+    st.session_state.model_used         = result.get("model_used", "")
+    st.session_state.tts_voice          = result.get("tts_voice", "")
+    st.session_state.audio_autoplayed   = False
 
 
 def reset_prediction():
-    st.session_state.captured_image = None
-    st.session_state.captured_name = ""
-    st.session_state.annotated_image = None
-    st.session_state.predicted_label = ""
-    st.session_state.predicted_label_en = ""
-    st.session_state.predicted_conf = ""
-    st.session_state.predicted_coverage = 0.0
-    st.session_state.predicted_spelling = []
-    st.session_state.audio_word = None
-    st.session_state.audio_letters = []
-    st.session_state.audio_combined = None
+    keep = {"selected_character", "selected_model"}
+    for k, v in _DEFAULTS.items():
+        if k not in keep and k != "current_page":
+            st.session_state[k] = v
     st.session_state.pending_capture = None
 
-def get_selected_character_image():
-    if st.session_state.selected_character == "بنت" and os.path.exists(girl_path):
-        return girl_path
-    if st.session_state.selected_character == "ولد" and os.path.exists(boy_path):
-        return boy_path
-    return None
+
+def get_character_emoji() -> str:
+    c = st.session_state.get("selected_character", "")
+    return "👧" if c == "بنت" else ("🧒" if c == "ولد" else "🐥")
+
+
+def gendered_place_hint() -> str:
+    """Return the right verb form based on selected character."""
+    if st.session_state.get("selected_character") == "بنت":
+        return "ضعي الشيء داخل المربع المضيء ثم اضغطي على الزر البنفسجي"
+    return "ضع الشيء داخل المربع المضيء ثم اضغط على الزر البنفسجي"
 
 
 def show_selected_character_badge():
-    avatar_path = get_selected_character_image()
-    if not avatar_path:
+    if st.session_state.selected_character == "بنت" and os.path.exists(girl_path):
+        avatar_path = girl_path
+    elif st.session_state.selected_character == "ولد" and os.path.exists(boy_path):
+        avatar_path = boy_path
+    else:
         return
-
     with open(avatar_path, "rb") as f:
         encoded = base64.b64encode(f.read()).decode()
-
     st.markdown(
-        f"""
-        <div class="selected-avatar-badge">
-            <img src="data:image/png;base64,{encoded}" alt="character">
-        </div>
-        """,
+        f'<div class="selected-avatar-badge">'
+        f'<img src="data:image/png;base64,{encoded}" alt="character">'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
 
-def get_character_emoji() -> str:
-    """Match kidsApp: 👧 for girl, 🧒 for boy, default 🐥 if nothing picked."""
-    c = st.session_state.get("selected_character", "")
-    if c == "بنت":
-        return "👧"
-    if c == "ولد":
-        return "🧒"
-    return "🐥"
+def go_to_page(page_name: str):
+    with st.spinner("جاري الانتقال..."):
+        time.sleep(0.25)
+    st.session_state.current_page = page_name
+    st.rerun()
 
-
-# =============================
-# Shared CSS
-# =============================
+# =============================================================================
+# Shared CSS — mobile-first
+# =============================================================================
 SHARED_CSS = """
 <style>
-header {visibility: hidden;}
-footer {visibility: hidden;}
-#MainMenu {visibility: hidden;}
+header, footer, #MainMenu { visibility: hidden; }
 
 @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
 
@@ -235,418 +302,261 @@ footer {visibility: hidden;}
   --btn-blue:      #5b8de8;
   --btn-blue-dark: #3d6fd4;
   --btn-pink:      #e86fa0;
-  --btn-pink-dark: #c9507f;
   --text-dark:     #2d2557;
   --text-mid:      #6b62a8;
   --card-shadow:   0 4px 24px rgba(91,71,180,0.13);
 }
 
 html, body,
-[data-testid="stAppViewContainer"],
-[data-testid="stApp"] {
+[data-testid="stAppViewContainer"], [data-testid="stApp"] {
   background: var(--bg) !important;
   font-family: 'Tajawal', sans-serif !important;
   direction: rtl;
 }
 
 .main .block-container {
-  max-width: 430px !important;
-  width: 100% !important;
+  max-width: 430px !important; width: 100% !important;
   margin: 0 auto !important;
-  padding: 16px 14px 42px !important;
-  animation: fadePage 0.55s ease;
+  padding: 12px 14px 24px !important;
+  animation: fadePage 0.45s ease;
 }
 
 @keyframes fadePage {
-  from {opacity: 0; transform: translateY(16px);}
-  to {opacity: 1; transform: translateY(0);}
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes floatImage {
-  0% {transform: translateY(0px);}
-  50% {transform: translateY(-12px);}
-  100% {transform: translateY(0px);}
-}
+.blob-bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.blob { position: absolute; border-radius: 50%; filter: blur(55px); opacity: 0.30; }
+.blob-1 { width: 240px; height: 240px; background: #c3b8f5; top: -8%;  left:  -4%; }
+.blob-2 { width: 180px; height: 180px; background: #f5c8e8; bottom: 4%; right: -4%; }
+.blob-3 { width: 140px; height: 140px; background: #b8f0e8; top: 40%; right: -2%; opacity: 0.18; }
 
-.blob-bg { position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden; }
-.blob { position:absolute; border-radius:50%; filter:blur(55px); opacity:0.30; }
-.blob-1 { width:240px; height:240px; background:#c3b8f5; top:-8%; left:-4%; }
-.blob-2 { width:180px; height:180px; background:#f5c8e8; bottom:4%; right:-4%; }
-.blob-3 { width:140px; height:140px; background:#b8f0e8; top:40%; right:-2%; opacity:0.18; }
-
-.welcome-title {
-    font-size: 72px;
-    font-weight: 900;
-    color: #18264a;
-    margin-top: 10px;
-    margin-bottom: 12px;
-    text-align: right;
-    line-height: 1.1;
-}
-.welcome-subtitle {
-    font-size: 30px;
-    font-weight: 800;
-    color: #6d7792;
-    margin-bottom: 18px;
-    text-align: right;
-}
-.welcome-desc {
-    font-size: 24px;
-    color: #7a849f;
-    line-height: 2;
-    text-align: right;
-    margin-bottom: 22px;
-}
-.main-title {
-    font-size: 64px;
-    font-weight: 900;
-    line-height: 1.15;
-    color: #18264a;
-    margin-bottom: 18px;
-    text-align: right;
-}
-.highlight {
-    background: linear-gradient(90deg, #d9ccff, #c7e3ff);
-    color: #6d4cff;
-    padding: 6px 16px;
-    border-radius: 16px;
-}
-.sub-text {
-    font-size: 22px;
-    color: #6b7690;
-    line-height: 1.9;
-    margin-bottom: 20px;
-    text-align: right;
-}
-.pill {
-    display: inline-block;
-    background: rgba(255,255,255,0.98);
-    padding: 12px 20px;
-    border-radius: 999px;
-    margin-left: 10px;
-    margin-bottom: 10px;
-    font-weight: 800;
-    color: #667089;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.05);
-    font-size: 18px;
-}
-.message-box {
-    background: #f2d8a4;
-    color: #5f462f;
-    border-radius: 24px;
-    padding: 18px;
-    text-align: center;
-    font-size: 24px;
-    font-weight: 800;
-    margin-top: 20px;
-    margin-bottom: 15px;
-}
-.note {
-    text-align: center;
-    color: #7b85a1;
-    font-size: 17px;
-    margin-top: 10px;
-}
-.section-title {
-    text-align: center;
-    font-size: 34px;
-    font-weight: 900;
-    color: #1b2a4c;
-    margin-bottom: 20px;
-}
-
-.card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 16px 28px rgba(42,58,95,0.12);
-}
-
-.img-box-girl {
-    background: #efd7ee;
-    border-radius: 24px;
-    padding: 20px;
-    margin-bottom: 18px;
-}
-.img-box-boy {
-    background: #dbeaf7;
-    border-radius: 24px;
-    padding: 20px;
-    margin-bottom: 18px;
-}
-.char-name {
-    font-size: 30px;
-    font-weight: 900;
-    color: #18264a;
-    margin-top: 10px;
-    margin-bottom: 10px;
-    text-align: center;
-}
-.char-desc {
-    font-size: 18px;
-    color: #6d7792;
-    line-height: 1.9;
-    min-height: 120px;
-    text-align: center;
-}
-.floating-image {
-    animation: floatImage 3.5s ease-in-out infinite;
-    filter: drop-shadow(0 20px 28px rgba(0, 0, 0, 0.10));
-    margin-top: 90px;
-}
-
+/* ---------- Shared header ---------- */
 .nq-header {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:12px 0 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0 14px;
 }
-.nq-title {
-  font-size:22px; font-weight:800; color:var(--text-dark); text-align:center; flex:1;
-}
+.nq-title { font-size: 20px; font-weight: 800; color: var(--text-dark); text-align: center; flex: 1; }
 .nq-avatar {
-  width:44px; height:44px; border-radius:50%;
-  background:linear-gradient(135deg,#c3b8f5,#f5c8e8);
-  display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg,#c3b8f5,#f5c8e8);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; flex-shrink: 0;
 }
-.nq-back {
-  width:44px; height:44px; border-radius:50%; background:var(--white);
-  display:flex; align-items:center; justify-content:center;
-  box-shadow:0 2px 12px rgba(123,111,212,0.18);
-  font-size:22px; color:var(--purple); font-weight:900; flex-shrink:0;
-}
+.nq-header-spacer { width: 40px; height: 40px; flex-shrink: 0; }
+
 .nq-instruction {
-  background:var(--white); border-radius:20px; padding:12px 18px;
-  display:flex; align-items:center; gap:12px; box-shadow:0 2px 14px rgba(123,111,212,0.10);
-  margin-bottom:18px; direction:rtl;
+  background: var(--white); border-radius: 16px; padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 2px 10px rgba(123,111,212,0.08);
+  margin-bottom: 12px; direction: rtl;
 }
-.nq-instruction-icon { font-size:26px; flex-shrink:0; }
-.nq-instruction-text { font-size:15px; font-weight:500; color:var(--text-mid); line-height:1.5; }
-.nq-cam-frame {
-  width:100%; aspect-ratio:3/4; border-radius:30px; overflow:hidden; position:relative;
-  background:#1a1a2e; box-shadow:0 8px 40px rgba(91,71,180,0.28); margin-bottom:18px;
+.nq-instruction-icon { font-size: 22px; flex-shrink: 0; }
+.nq-instruction-text { font-size: 14px; font-weight: 500; color: var(--text-mid); line-height: 1.4; }
+
+/* =================== PAGE 1 (welcome) =================== */
+.welcome-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; min-height: 72vh; justify-content: center;
+  gap: 16px; padding: 8px 4px;
 }
-.cc { position:absolute; width:22px; height:22px; border-color:rgba(255,255,255,0.45); border-style:solid; }
-.cc.tl { top:14px; right:14px; border-width:2px 0 0 2px; }
-.cc.tr { top:14px; left:14px;  border-width:2px 2px 0 0; }
-.cc.bl { bottom:14px; right:14px; border-width:0 0 2px 2px; }
-.cc.br { bottom:14px; left:14px;  border-width:0 2px 2px 0; }
-.cam-dots {
-  position:absolute; inset:0; background-image:radial-gradient(rgba(160,140,255,0.07) 1px,transparent 1px);
-  background-size:26px 26px;
+.welcome-logo { margin-bottom: 4px; }
+.welcome-title-c { font-size: 34px; font-weight: 900; color: #18264a; line-height: 1.15; }
+.welcome-subtitle-c { font-size: 18px; font-weight: 800; color: #6d7792; }
+.welcome-desc-c {
+  font-size: 15px; color: #7a849f; line-height: 1.75;
+  background: var(--white); border-radius: 18px; padding: 14px 16px;
+  box-shadow: var(--card-shadow);
+  max-width: 360px; margin: 0 auto;
 }
-.guide-sq {
-  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-  width:62%; aspect-ratio:1; border-radius:22px; border:2.5px solid rgba(200,185,255,0.9);
-  animation:glow-pulse 2.2s ease-in-out infinite;
+.welcome-pills {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
 }
-.guide-lbl {
-  position:absolute; bottom:-24px; left:50%; transform:translateX(-50%);
-  font-size:13px; font-weight:600; color:rgba(210,200,255,0.9); white-space:nowrap;
+.pill-sm {
+  display: inline-block; background: rgba(255,255,255,0.98);
+  padding: 8px 16px; border-radius: 999px;
+  font-weight: 800; color: #667089; font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
-@keyframes glow-pulse {
-  0%,100% { box-shadow:0 0 0 3px rgba(160,140,255,0.18),0 0 18px 4px rgba(160,140,255,0.32),inset 0 0 18px 2px rgba(160,140,255,0.08); }
-  50%      { box-shadow:0 0 0 5px rgba(160,140,255,0.32),0 0 32px 10px rgba(160,140,255,0.50),inset 0 0 24px 6px rgba(160,140,255,0.18); }
+
+/* =================== PAGE 2 (characters) =================== */
+.char-row-note { font-size: 15px; color: #6b7690; text-align: center; margin-bottom: 8px; }
+.char-box { border-radius: 20px; padding: 12px; margin-bottom: 10px; }
+.char-box-girl { background: #efd7ee; }
+.char-box-boy  { background: #dbeaf7; }
+.char-name-c { font-size: 20px; font-weight: 900; color: #18264a; text-align: center; margin: 6px 0 4px; }
+.char-desc-c {
+  font-size: 12.5px; color: #6d7792; line-height: 1.55;
+  min-height: 52px; text-align: center; margin-bottom: 4px;
 }
-.cam-error {
-  position:absolute; inset:0; background:rgba(20,18,48,0.92); display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:14px; text-align:center; padding:28px; border-radius:inherit;
+
+/* =================== PAGE 3 (model picker + camera) =================== */
+.nq-picker-wrap {
+  background: var(--white); border-radius: 20px;
+  padding: 14px 14px 10px; margin-bottom: 14px;
+  box-shadow: 0 2px 12px rgba(123,111,212,0.10); direction: rtl;
+  border: 2px solid rgba(123,111,212,0.12);
 }
-.cam-error-icon { font-size:52px; }
-.cam-error-text { font-size:15px; font-weight:600; color:rgba(200,185,255,0.9); line-height:1.5; }
-.nq-controls { display:flex; align-items:center; justify-content:center; gap:36px; margin-bottom:16px; }
-.icon-btn {
-  width:50px; height:50px; border-radius:50%; background:rgba(255,255,255,0.82);
-  display:flex; align-items:center; justify-content:center; font-size:24px; box-shadow:0 2px 12px rgba(123,111,212,0.13);
+.nq-picker-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
 }
-.shutter {
-  width:76px; height:76px; border-radius:50%; background:var(--white); border:5px solid var(--purple-light);
-  display:flex; align-items:center; justify-content:center; box-shadow:0 4px 22px rgba(123,111,212,0.32);
+.nq-picker-title {
+  font-size: 15px; font-weight: 800; color: var(--text-dark);
+  display: flex; align-items: center; gap: 6px;
 }
-.shutter-inner {
-  width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,var(--purple),var(--purple-dark));
+.nq-picker-active-chip {
+  font-size: 11.5px; font-weight: 700; color: var(--purple-dark);
+  background: linear-gradient(135deg,#ede9fc,#ddd5f8);
+  border-radius: 999px; padding: 4px 10px;
 }
-.nq-learn-btn {
-  display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:18px;
-  border-radius:24px; background:linear-gradient(135deg,var(--btn-blue),var(--btn-blue-dark));
-  color:white; font-size:19px; font-weight:800; box-shadow:0 5px 22px rgba(91,141,232,0.42);
-  margin-bottom:12px;
+.nq-picker-desc {
+  font-size: 12px; color: var(--text-mid); line-height: 1.5;
+  padding: 8px 12px; background: rgba(237,233,252,0.55);
+  border-radius: 12px; margin-top: 2px;
 }
-.nq-learn-icon {
-  width:30px; height:30px; background:rgba(255,255,255,0.24); border-radius:50%;
-  display:flex; align-items:center; justify-content:center; font-size:17px;
+/* Picker tile buttons */
+.nq-picker-wrap div.stButton > button {
+  width: 100% !important; min-height: 78px !important;
+  padding: 8px 6px !important; border-radius: 14px !important;
+  background: #f6f3ff !important; color: var(--text-dark) !important;
+  font-family: 'Tajawal', sans-serif !important;
+  font-weight: 700 !important; font-size: 12.5px !important;
+  line-height: 1.4 !important; white-space: pre-line !important;
+  border: 2px solid transparent !important;
+  box-shadow: 0 2px 8px rgba(91,71,180,0.08) !important;
+  transition: all 0.15s ease !important; text-align: center !important;
 }
+.nq-picker-wrap div.stButton > button:hover {
+  transform: translateY(-2px) !important; background: #ede9fc !important;
+  box-shadow: 0 6px 16px rgba(123,111,212,0.18) !important;
+}
+.nq-picker-wrap div.stButton > button:disabled {
+  opacity: 0.55 !important; background: #eeeaf8 !important;
+  cursor: not-allowed !important; transform: none !important; box-shadow: none !important;
+}
+.nq-picker-wrap.picker-sel-custom        [data-testid="element-container"]:nth-of-type(1) div.stButton > button,
+.nq-picker-wrap.picker-sel-google_vision [data-testid="element-container"]:nth-of-type(2) div.stButton > button,
+.nq-picker-wrap.picker-sel-imagga        [data-testid="element-container"]:nth-of-type(3) div.stButton > button {
+  background: linear-gradient(135deg,#ede9fc,#ddd5f8) !important;
+  border-color: var(--purple) !important;
+  box-shadow: 0 6px 16px rgba(123,111,212,0.25) !important;
+}
+
+/* =================== Image card / badges =================== */
 .nq-img-card {
-  width:100%; border-radius:28px; overflow:hidden; position:relative;
-  box-shadow:0 6px 32px rgba(91,71,180,0.18); margin-bottom:16px;
-}
-.nq-img-placeholder {
-  width:100%; aspect-ratio:4/3; background:linear-gradient(135deg,#e8e4fc,#f5e8f8);
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--text-mid);
-  font-size:15px; font-weight:500;
+  width: 100%; border-radius: 24px; overflow: hidden; position: relative;
+  box-shadow: 0 6px 28px rgba(91,71,180,0.18); margin-bottom: 14px;
 }
 .nq-seg-badge {
-  position:absolute; top:14px; right:14px; background:rgba(76,175,125,0.92); color:white;
-  font-size:13px; font-weight:700; padding:6px 14px; border-radius:20px;
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(76,175,125,0.92); color: white;
+  font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 18px;
 }
+.nq-model-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 18px;
+  margin-bottom: 8px; margin-left: 6px;
+}
+.nq-model-custom        { background: #e8f4ff; color: #1a5fa8; }
+.nq-model-google_vision { background: #e8faef; color: #1a7d3f; }
+.nq-model-imagga        { background: #ffeaf2; color: #a02060; }
+.nq-tts-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 18px;
+  background: #f0ebff; color: #5a3fc0; margin-bottom: 8px;
+}
+
+/* =================== Word + spelling cards =================== */
 .nq-word-card, .nq-spell-card {
-  background:var(--white); border-radius:28px; box-shadow:var(--card-shadow); padding:22px; margin-bottom:16px;
-  position:relative; overflow:hidden; direction:rtl;
+  background: var(--white); border-radius: 24px; box-shadow: var(--card-shadow);
+  padding: 18px; margin-bottom: 14px; position: relative; overflow: hidden; direction: rtl;
 }
 .nq-word-card::before {
-  content:''; position:absolute; top:0; right:0; width:90px; height:90px;
-  background:linear-gradient(135deg,rgba(195,184,245,0.28),transparent); border-radius:0 28px 0 90px;
+  content: ""; position: absolute; top: 0; right: 0; width: 80px; height: 80px;
+  background: linear-gradient(135deg, rgba(195,184,245,0.28), transparent);
+  border-radius: 0 24px 0 80px;
 }
-.word-lbl, .audio-lbl, .spell-hdr-lbl, .spell-hint {
-  font-size:14px; font-weight:600; color:var(--text-mid);
+.word-lbl, .audio-lbl, .spell-hdr-lbl, .spell-hint, .meaning-lbl {
+  font-size: 13px; font-weight: 600; color: var(--text-mid);
 }
-.word-row { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:18px; }
-.word-left { display:flex; align-items:center; gap:16px; }
-.word-emoji { font-size:48px; }
-.word-arabic { font-size:40px; font-weight:900; color:var(--text-dark); }
+.word-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; margin-bottom: 10px;
+}
+.word-arabic { font-size: 36px; font-weight: 900; color: var(--text-dark); }
 .conf-pill {
-  background:linear-gradient(135deg,#eaf7f0,#d4f0e4); color:#2e7d5a; font-size:14px; font-weight:700;
-  padding:8px 16px; border-radius:20px; flex-shrink:0;
+  background: linear-gradient(135deg,#eaf7f0,#d4f0e4); color: #2e7d5a;
+  font-size: 13px; font-weight: 700; padding: 6px 14px; border-radius: 18px; flex-shrink: 0;
 }
-.audio-row { display:flex; align-items:center; gap:14px; }
-.play-btn {
-  width:56px; height:56px; border-radius:50%; flex-shrink:0; background:linear-gradient(135deg,var(--purple),var(--purple-dark));
-  display:flex; align-items:center; justify-content:center; box-shadow:0 4px 18px rgba(123,111,212,0.38); color:white; font-size:20px;
+.meaning-en {
+  font-size: 16px; font-weight: 700; color: #5a3fc0;
+  direction: ltr; text-align: center;
+  background: #f0ebff; border-radius: 12px;
+  padding: 8px 14px; margin-top: 6px;
 }
-.audio-wave { flex:1; display:flex; align-items:center; gap:5px; height:42px; }
-.wbar { flex:1; background:var(--purple-light); border-radius:3px; opacity:0.5; }
-.wbar:nth-child(1){height:20%} .wbar:nth-child(2){height:50%} .wbar:nth-child(3){height:80%} .wbar:nth-child(4){height:40%}
-.wbar:nth-child(5){height:70%} .wbar:nth-child(6){height:55%} .wbar:nth-child(7){height:30%} .wbar:nth-child(8){height:65%}
-.wbar:nth-child(9){height:45%} .wbar:nth-child(10){height:25%}
-.audio-time { font-size:14px; color:var(--text-mid); font-weight:600; min-width:40px; text-align:left; }
-.spell-hdr { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
-.spell-bubbles { display:flex; flex-wrap:wrap; gap:10px; flex-direction:row; justify-content:flex-end; margin-bottom:12px; }
+.spell-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.spell-bubbles {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  justify-content: flex-end; margin-bottom: 10px;
+}
 .spell-bubble {
-  width:52px; height:56px; border-radius:16px; background:linear-gradient(145deg,#ede9fc,#ddd5f8);
-  border:1.5px solid rgba(123,111,212,0.17); display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:2px; font-size:24px; font-weight:900; color:var(--purple-dark); box-shadow:0 3px 10px rgba(91,71,180,0.10);
+  width: 46px; height: 50px; border-radius: 14px;
+  background: linear-gradient(145deg,#ede9fc,#ddd5f8);
+  border: 1.5px solid rgba(123,111,212,0.17);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; font-size: 22px; font-weight: 900; color: var(--purple-dark);
+  box-shadow: 0 3px 9px rgba(91,71,180,0.10);
 }
-.ltr-num { font-size:10px; font-weight:600; color:var(--purple-light); line-height:1; }
-.nq-pink-btn, .nq-outline-btn {
-  display:flex; align-items:center; justify-content:center; gap:12px; width:100%; text-align:center; border-radius:24px;
-}
-.nq-pink-btn {
-  padding:18px; background:linear-gradient(135deg,var(--btn-pink),var(--btn-pink-dark)); color:white; font-size:19px; font-weight:800;
-  box-shadow:0 5px 20px rgba(232,111,160,0.38); margin-bottom:12px;
-}
-.nq-outline-btn {
-  padding:15px; background:var(--white); border:1.5px solid var(--purple-light); color:var(--purple); font-size:16px; font-weight:700;
-}
-[data-testid="stFileUploaderDropzone"] {
-  border:1.5px dashed var(--purple-light) !important; border-radius:16px !important; background:rgba(255,255,255,0.6) !important;
-}
-/* الأزرار رجعتها أقرب للشكل القديم */
+.ltr-num { font-size: 9px; font-weight: 600; color: var(--purple-light); line-height: 1; }
+
+/* =================== Buttons =================== */
 div.stButton > button {
-  width: 100%;
-  border: none;
-  border-radius: 18px;
-  padding: 0.85rem 1rem;
-  font-size: 18px;
-  font-weight: 800;
-  color: white;
-  background: linear-gradient(135deg, #745cff, #4d96ff);
-  box-shadow: 0 12px 24px rgba(91,110,255,0.24);
+  width: 100%; border: none; border-radius: 16px;
+  padding: 0.9rem 1rem; font-size: 17px; font-weight: 800; color: white;
+  background: linear-gradient(135deg,#745cff,#4d96ff);
+  box-shadow: 0 10px 22px rgba(91,110,255,0.22);
   transition: 0.18s ease;
 }
-.selected-avatar-badge {
-  position: fixed;
-  top: 14px;
-  left: 14px;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 8px 20px rgba(91,71,180,0.20);
-  padding: 4px;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.selected-avatar-badge img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.welcome-title {
-  font-size: 42px;
-  text-align: center;
-}
-
-.welcome-subtitle {
-  font-size: 22px;
-  text-align: center;
-}
-
-.welcome-desc {
-  font-size: 18px;
-  text-align: center;
-  line-height: 1.9;
-}
-
-.main-title {
-  font-size: 34px;
-  text-align: center;
-}
-
-.sub-text {
-  font-size: 17px;
-  text-align: center;
-}
-
-.section-title {
-  font-size: 24px;
-}
-
-.pill {
-  font-size: 15px;
-  padding: 10px 16px;
-}
-
-.message-box {
-  font-size: 18px;
-  padding: 14px;
-}
-
-.char-name {
-    font-size: 20px;
-    font-weight: 900;
-    color: #18264a;
-    margin: 8px 0;
-    text-align: center;
-}
-
-.char-desc {
-    font-size: 14px;
-    color: #6d7792;
-    line-height: 1.7;
-    text-align: center;
-    margin-bottom: 10px;
-}
-
-.start-btn {
-  max-width: 200px;
-  margin: 20px auto 0 auto;
-}
-
-.back-btn {
-  max-width: 140px;
-  margin-bottom: 14px;
-}
-
-div.stButton > button {
-  border-radius: 16px;
-  padding: 0.8rem 1rem;
-  font-size: 16px;
-}
 div.stButton > button:hover { transform: translateY(-2px); }
-.start-btn { max-width: 220px; margin: 28px auto 0 auto; }
-.back-btn { max-width: 170px; margin-bottom: 20px; }
-[data-testid="stImage"] img { border-radius:22px; box-shadow:0 4px 20px rgba(91,71,180,0.14); }
+
+/* =================== Avatar badge (fixed) =================== */
+.selected-avatar-badge {
+  position: fixed; top: 12px; left: 12px;
+  width: 54px; height: 54px; border-radius: 50%;
+  background: #ffffff; box-shadow: 0 6px 16px rgba(91,71,180,0.20);
+  padding: 3px; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+}
+.selected-avatar-badge img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+}
+
+/* =================== Loader =================== */
+.nq-loader-card {
+  background: #ffffff; border-radius: 24px; padding: 28px 20px;
+  text-align: center; box-shadow: 0 8px 24px rgba(91,71,180,0.15);
+  margin: 20px auto; max-width: 480px;
+}
+.nq-loader-emoji { font-size: 60px; animation: nq-bounce 1.4s ease-in-out infinite; display: inline-block; }
+@keyframes nq-bounce {
+  0%,100% { transform: translateY(0) rotate(-6deg); }
+  50%     { transform: translateY(-10px) rotate(6deg); }
+}
+.nq-loader-text { font-size: 20px; font-weight: 800; color: #4a3ea0; margin-top: 12px; }
+.nq-loader-bar {
+  margin: 16px auto 0; height: 8px; width: 85%; max-width: 320px;
+  background: #e9e5fa; border-radius: 999px; overflow: hidden; position: relative;
+}
+.nq-loader-bar::before {
+  content: ""; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
+  background: linear-gradient(90deg,#7b6fd4,#e86fa0); border-radius: 999px;
+  animation: nq-slide 1.6s ease-in-out infinite;
+}
+@keyframes nq-slide { 0%{ left: -40%; } 100% { left: 100%; } }
+
+[data-testid="stImage"] img { border-radius: 20px; box-shadow: 0 4px 16px rgba(91,71,180,0.14); }
 </style>
 
 <div class="blob-bg">
@@ -658,484 +568,282 @@ div.stButton > button:hover { transform: translateY(-2px); }
 
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 
-# =============================
-# Navigation helper
-# =============================
-def go_to_page(page_name: str):
-    with st.spinner("جاري الانتقال..."):
-        time.sleep(0.35)
-    st.session_state.current_page = page_name
-    st.rerun()
-
-# backgrund
-def set_welcome_background():
-    if not os.path.exists(kids_image_path):
-        return
-
-    with open(kids_image_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode()
-
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: linear-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0.1)),
-                              url("data:image/jpeg;base64,{encoded}") !important;
-            background-size: cover !important;
-            background-position: center !important;
-            background-repeat: no-repeat !important;
-            background-attachment: fixed !important;
-        }}
-        [data-testid="stAppViewContainer"] {{
-            background: transparent !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-def reset_background():
-    st.markdown(
-        """
-        <style>
-        .stApp {
-            background-image: none !important;
-            background-color: #eeeaf8 !important; /* لون الخلفية البنفسجي الهادئ لباقي الصفحات */
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-# =============================
-# Welcome page
-# =============================
+# =============================================================================
+# Page 1 — Welcome (compact, no scroll, full-width أستكشف!)
+# =============================================================================
 def show_welcome_page():
-    set_welcome_background()
+    st.markdown('<div class="welcome-wrap">', unsafe_allow_html=True)
 
+    # Logo
+    if os.path.exists(logo_path):
+        st.markdown('<div class="welcome-logo">', unsafe_allow_html=True)
+        st.image(logo_path, width=140)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="welcome-title-c">ابدأ رحلتك</div>', unsafe_allow_html=True)
+    st.markdown('<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>', unsafe_allow_html=True)
     st.markdown(
-        """
-        <style>
-        .welcome-wrap {
-            min-height: 88vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 24px 18px;
-        }
-
-        .welcome-text-box {
-            background: rgba(255,255,255,0.22);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            padding: 24px 28px;
-            border-radius: 24px;
-            max-width: 88%;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-            margin-bottom: 22px;
-        }
-
-        .welcome-text {
-            font-size: 28px;
-            font-weight: 900;
-            color: #2d2557;
-            margin-bottom: 12px;
-            line-height: 1.8;
-        }
-
-        .welcome-sub {
-            font-size: 18px;
-            line-height: 2;
-            color: #3d3966;
-            font-weight: 700;
-        }
-
-        .welcome-btn-wrap {
-            max-width: 220px;
-            margin: 0 auto;
-        }
-
-        .welcome-btn-wrap div.stButton > button {
-            width: 100%;
-            border: none;
-            border-radius: 24px;
-            padding: 0.95rem 1rem;
-            font-size: 18px;
-            font-weight: 800;
-            color: white;
-            background: linear-gradient(135deg, #745cff, #4d96ff);
-            box-shadow: 0 10px 24px rgba(91,110,255,0.25);
-            transition: 0.2s ease;
-        }
-
-        .welcome-btn-wrap div.stButton > button:hover {
-            transform: translateY(-2px);
-        }
-        </style>
-
-        <div class="welcome-wrap">
-            <div class="welcome-text-box">
-                <div class="welcome-text">مرحبًا بالمستكشف الذكي</div>
-                <div class="welcome-sub">
-                    في هذه الرحلة الجميلة ستتعرف على الأشياء،<br>
-                    وتتعلم بطريقة ممتعة،<br>
-                    وتختار شخصيتك المفضلة لتبدأ المغامرة.
-                </div>
-            </div>
-        </div>
-        """,
+        '<div class="welcome-desc-c">'
+        'في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
+        '</div>',
         unsafe_allow_html=True,
     )
-
-    st.markdown('<div class="welcome-btn-wrap">', unsafe_allow_html=True)
-    if st.button("ابدأ", key="start_clean"):
-        go_to_page("characters")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# =============================
-# Character page
-# =============================
-def show_character_page():
-    st.markdown('<div class="back-btn">', unsafe_allow_html=True)
-    if st.button("⬅ رجوع", key="back_to_welcome"):
-        go_to_page("welcome")
+    st.markdown(
+        '<div class="welcome-pills">'
+        '<span class="pill-sm">🌈 ممتع</span>'
+        '<span class="pill-sm">🧠 ذكي</span>'
+        '<span class="pill-sm">✨ للأطفال</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # Full-width CTA
+    if st.button("أستكشف!", key="start_welcome", type="primary", use_container_width=True):
+        go_to_page("characters")
+
+# =============================================================================
+# Page 2 — Character selection (side-by-side, full-width buttons)
+# =============================================================================
+def show_character_page():
+    if st.button("⬅ رجوع", key="back_to_welcome", use_container_width=True):
+        go_to_page("welcome")
+
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="main-title">اختَر <span class="highlight">شخصيتك</span></div>',
+        '<div style="font-size:26px; font-weight:900; color:#18264a; '
+        'text-align:center; margin-bottom:10px;">'
+        'اختَر <span style="background:linear-gradient(90deg,#d9ccff,#c7e3ff);'
+        'color:#6d4cff;padding:4px 10px;border-radius:12px;">شخصيتك</span>'
+        '</div>',
         unsafe_allow_html=True,
     )
-
-    st.markdown(
-        '<div class="sub-text">لازم تختار شخصية أولًا قبل ما تبدأ التعلّم.</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div style="text-align:center;">
-            <span class="pill">👧 بنت</span>
-            <span class="pill">👦 ولد</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('<div class="section-title">اختر شخصيتك</div>', unsafe_allow_html=True)
 
     col_girl, col_boy = st.columns(2, gap="small")
 
     with col_girl:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="img-box-girl">', unsafe_allow_html=True)
-
+        st.markdown('<div class="char-box char-box-girl">', unsafe_allow_html=True)
         if os.path.exists(girl_path):
-            st.image(Image.open(girl_path), width=140)
+            st.image(Image.open(girl_path), use_container_width=True)
         else:
-            st.error("ملف girl.png غير موجود")
-
+            st.error("girl.png")
         st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div class="char-name">بنت</div>', unsafe_allow_html=True)
+        st.markdown('<div class="char-name-c">بنت</div>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="char-desc">رفيقة تعلم مرحة تحب القصص، والألوان، واكتشاف أشياء جديدة.</div>',
+            '<div class="char-desc-c">رفيقة تعلم مرحة تحب القصص والألوان.</div>',
             unsafe_allow_html=True,
         )
-
-        if st.button("اختيار البنت", key="girl_button_unique"):
+        if st.button("اختيار البنت", key="pick_girl", use_container_width=True):
             st.session_state.selected_character = "بنت"
-            go_to_page("camera") # انتقال فوري للكاميرا
-
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.rerun()
 
     with col_boy:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="img-box-boy">', unsafe_allow_html=True)
-
+        st.markdown('<div class="char-box char-box-boy">', unsafe_allow_html=True)
         if os.path.exists(boy_path):
-            st.image(Image.open(boy_path), width=140)
+            st.image(Image.open(boy_path), use_container_width=True)
         else:
-            st.error("ملف boy.png غير موجود")
-
+            st.error("boy.png")
         st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div class="char-name">ولد</div>', unsafe_allow_html=True)
+        st.markdown('<div class="char-name-c">ولد</div>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="char-desc">رفيق تعلم نشيط يحب الألعاب، والتحديات، والمغامرات الممتعة.</div>',
+            '<div class="char-desc-c">رفيق تعلم نشيط يحب الألعاب والتحديات.</div>',
             unsafe_allow_html=True,
         )
-
-        if st.button("اختيار الولد", key="boy_button_unique"):
+        if st.button("اختيار الولد", key="pick_boy", use_container_width=True):
             st.session_state.selected_character = "ولد"
-            go_to_page("camera") # انتقال فوري للكاميرا
+            st.rerun()
 
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+    start_disabled = st.session_state.selected_character == ""
+    if st.button(
+        "ابدأ التعلّم",
+        key="start_learning_btn",
+        type="primary",
+        use_container_width=True,
+        disabled=start_disabled,
+    ):
+        go_to_page("camera")
 
-    if st.session_state.selected_character:
+# =============================================================================
+# Model picker (used on page 3)
+# =============================================================================
+def show_model_picker():
+    models = fetch_available_models()
+    if not models:
+        return
+
+    available_ids = [m["id"] for m in models if m.get("available", False)]
+    if not available_ids:
+        st.warning("⚠️ لا توجد نماذج متاحة حالياً.")
+        return
+    # Default model must be "custom"; if custom is unavailable, fall back to first available
+    if st.session_state.selected_model not in available_ids:
+        st.session_state.selected_model = (
+            DEFAULT_MODEL if DEFAULT_MODEL in available_ids else available_ids[0]
+        )
+
+    current   = next((m for m in models if m["id"] == st.session_state.selected_model), models[0])
+    active_id = st.session_state.selected_model
+
+    st.markdown(
+        f'<div class="nq-picker-wrap picker-sel-{active_id}">'
+        f'<div class="nq-picker-hdr">'
+        f'  <span class="nq-picker-title">🤖 اختر نموذج الذكاء الاصطناعي</span>'
+        f'  <span class="nq-picker-active-chip">{current["emoji"]} {current["name_ar"]}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Card grid — one row of 3 for the three models
+    cols = st.columns(3, gap="small")
+    for i, m in enumerate(models):
+        is_available = m.get("available", True)
+        label = f"{m['emoji']} {m['name_ar']}\n{m['num_classes_label']} فئة"
+        if not is_available:
+            label += "\n(غير مفعّل)"
+        with cols[i % 3]:
+            if st.button(
+                label,
+                key=f"pick_model_{m['id']}",
+                disabled=not is_available,
+                use_container_width=True,
+            ):
+                st.session_state.selected_model = m["id"]
+                st.rerun()
+
+    if current.get("description_ar"):
         st.markdown(
-            f'<div class="message-box">تم اختيار: {st.session_state.selected_character} 💛</div>',
+            f'<div class="nq-picker-desc">ℹ️ {current["description_ar"]}</div>',
             unsafe_allow_html=True,
         )
-    else:
-        st.markdown(
-            '<div class="message-box">اختر بنت أو ولد أولًا</div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown('<div class="note">لن تتمكن من المتابعة حتى تختار الشخصية.</div>', unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
-# =============================
-# Camera page
-# =============================
+# =============================================================================
+# Page 3/4 — Camera + confirmation (skips old page 5; jumps straight to results)
+# =============================================================================
+CAMERA_CSS = """
+<style>
+[data-testid="stCameraInput"] {
+    position: relative !important;
+    background: #1a1a2e !important;
+    border-radius: 24px !important;
+    box-shadow: 0 6px 24px rgba(91,71,180,0.28) !important;
+    padding: 10px !important;
+    max-width: 460px !important;
+    margin: 0 auto 10px !important;
+    overflow: hidden !important;
+}
+[data-testid="stCameraInput"] > div:first-child {
+    width: 100% !important; aspect-ratio: 3/4 !important;
+    position: relative !important; border-radius: 18px !important;
+    overflow: hidden !important; background: #000 !important;
+}
+[data-testid="stCameraInput"] video,
+[data-testid="stCameraInput"] img {
+    position: absolute !important; inset: 0 !important;
+    width: 100% !important; height: 100% !important;
+    object-fit: cover !important; border-radius: 18px !important; display: block !important;
+}
+[data-testid="stCameraInput"]::before {
+    content: ""; position: absolute;
+    top: 20px; left: 20px; right: 20px; bottom: 80px;
+    pointer-events: none; z-index: 4;
+    background:
+        linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 22px 2px no-repeat,
+        linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 2px 22px no-repeat,
+        linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 22px 2px no-repeat,
+        linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 2px 22px no-repeat,
+        linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 22px 2px no-repeat,
+        linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 2px 22px no-repeat,
+        linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 22px 2px no-repeat,
+        linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 2px 22px no-repeat;
+}
+[data-testid="stCameraInput"]::after {
+    content: "ضع الشيء هنا"; position: absolute;
+    top: calc(50% - 40px); left: 50%; transform: translate(-50%,-50%);
+    width: 52%; aspect-ratio: 1; border-radius: 20px;
+    border: 2.5px solid rgba(200,185,255,0.9);
+    pointer-events: none; z-index: 5;
+    animation: nq-glow 2.2s ease-in-out infinite;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 6px;
+    font-family: 'Tajawal',sans-serif; font-size: 12px; font-weight: 600;
+    color: rgba(210,200,255,0.9);
+}
+@keyframes nq-glow {
+    0%,100% { box-shadow: 0 0 0 3px rgba(160,140,255,0.20), 0 0 18px 4px rgba(160,140,255,0.35), inset 0 0 18px 2px rgba(160,140,255,0.10); }
+    50%     { box-shadow: 0 0 0 5px rgba(160,140,255,0.35), 0 0 28px 8px rgba(160,140,255,0.50), inset 0 0 22px 5px rgba(160,140,255,0.18); }
+}
+[data-testid="stCameraInput"] button[kind="primary"],
+[data-testid="stCameraInput"] button[kind="primaryFormSubmit"],
+[data-testid="stCameraInput"] > div > button:first-of-type {
+    width: 68px !important; height: 68px !important;
+    min-width: 68px !important; max-width: 68px !important;
+    border-radius: 50% !important; border: 5px solid #a89de8 !important;
+    background: #ffffff !important; color: transparent !important;
+    font-size: 0 !important; padding: 0 !important;
+    margin: 12px auto 6px !important; display: block !important;
+    box-shadow: 0 4px 20px rgba(123,111,212,0.36) !important;
+    position: relative !important;
+}
+[data-testid="stCameraInput"] button[kind="primary"]::before,
+[data-testid="stCameraInput"] button[kind="primaryFormSubmit"]::before,
+[data-testid="stCameraInput"] > div > button:first-of-type::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%,-50%); width: 48px; height: 48px;
+    border-radius: 50%; background: linear-gradient(135deg,#7b6fd4,#5a4fb0);
+}
+[data-testid="stCameraInput"] button:not([kind="primary"]):not([kind="primaryFormSubmit"]):not(:first-of-type) {
+    width: auto !important; height: 30px !important;
+    background: rgba(255,255,255,0.12) !important; color: rgba(255,255,255,0.8) !important;
+    border: none !important; border-radius: 10px !important;
+    font-size: 11px !important; font-weight: 600 !important;
+    padding: 4px 12px !important; margin: 6px auto !important;
+    box-shadow: none !important; display: inline-flex !important;
+}
+[data-testid="stCameraInput"] label,
+[data-testid="stCameraInput"] [data-testid="stWidgetLabel"] { display: none !important; }
+</style>
+"""
+
 
 def show_camera_page():
     show_selected_character_badge()
-    # Camera page styling from kidsApp.py (mobile-friendly preview + guide square + shutter)
-    st.markdown("""
-    <style>
-    /* Dark frame = the camera widget itself */
-    [data-testid="stCameraInput"] {
-        position: relative !important;
-        background: #1a1a2e !important;
-        border-radius: 28px !important;
-        box-shadow: 0 8px 32px rgba(91,71,180,0.30) !important;
-        padding: 12px !important;
-        max-width: 460px !important;
-        margin: 0 auto 12px !important;
-        overflow: hidden !important;
-    }
+    st.markdown(CAMERA_CSS, unsafe_allow_html=True)
 
-    /* The inner wrapper around the video — force 3:4 block */
-    [data-testid="stCameraInput"] > div:first-child {
-        width: 100% !important;
-        aspect-ratio: 3 / 4 !important;
-        position: relative !important;
-        border-radius: 20px !important;
-        overflow: hidden !important;
-        background: #000 !important;
-    }
+    # Header — no emoji on the right (per spec: remove top-right emoji)
+    st.markdown(
+        f'<div class="nq-header">'
+        f'  <div class="nq-avatar">{get_character_emoji()}</div>'
+        f'  <span class="nq-title">📸 وقت التصوير!</span>'
+        f'  <div class="nq-header-spacer"></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-    /* Make video + captured still actually FILL the frame (fixes the tiny preview) */
-    [data-testid="stCameraInput"] video,
-    [data-testid="stCameraInput"] img {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-        object-fit: cover !important;
-        border-radius: 20px !important;
-        display: block !important;
-    }
-
-    /* ==== CORNER MARKS (four L-shaped corners on the inside) ==== */
-    [data-testid="stCameraInput"]::before {
-        content: "";
-        position: absolute;
-        top: 22px; left: 22px; right: 22px; bottom: 90px;
-        pointer-events: none;
-        z-index: 4;
-        background:
-            linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 22px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 2px 22px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 22px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 2px 22px no-repeat,
-            linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 22px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 2px 22px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 22px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 2px 22px no-repeat;
-    }
-
-    /* ==== GLOWING GUIDE SQUARE — centered over the video area ==== */
-    [data-testid="stCameraInput"]::after {
-        content: "ضع الشيء هنا";
-        position: absolute;
-        top: calc(50% - 45px);
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 52%;
-        aspect-ratio: 1;
-        border-radius: 22px;
-        border: 2.5px solid rgba(200,185,255,0.9);
-        pointer-events: none;
-        z-index: 5;
-        animation: nq-glow-pulse 2.2s ease-in-out infinite;
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        padding-bottom: 8px;
-        font-family: 'Tajawal', sans-serif;
-        font-size: 13px;
-        font-weight: 600;
-        color: rgba(210,200,255,0.9);
-    }
-    @keyframes nq-glow-pulse {
-        0%,100% {
-            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
-                        0 0 18px 4px rgba(160,140,255,0.35),
-                        inset 0 0 18px 2px rgba(160,140,255,0.10);
-            border-color: rgba(200,185,255,0.85);
-        }
-        50% {
-            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
-                        0 0 32px 10px rgba(160,140,255,0.55),
-                        inset 0 0 24px 6px rgba(160,140,255,0.20);
-            border-color: rgba(220,210,255,1);
-        }
-    }
-
-    /* Primary shutter button */
-    [data-testid="stCameraInput"] button[kind="primary"],
-    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"],
-    [data-testid="stCameraInput"] > div > button:first-of-type {
-        width: 72px !important;
-        height: 72px !important;
-        min-width: 72px !important;
-        max-width: 72px !important;
-        border-radius: 50% !important;
-        border: 5px solid #a89de8 !important;
-        background: #ffffff !important;
-        color: transparent !important;
-        font-size: 0 !important;
-        padding: 0 !important;
-        margin: 14px auto 6px !important;
-        display: block !important;
-        box-shadow: 0 4px 22px rgba(123,111,212,0.38) !important;
-        transition: transform 0.12s ease !important;
-        position: relative !important;
-    }
-    [data-testid="stCameraInput"] button[kind="primary"]:active,
-    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"]:active,
-    [data-testid="stCameraInput"] > div > button:first-of-type:active {
-        transform: scale(0.92) !important;
-    }
-    [data-testid="stCameraInput"] button[kind="primary"]::before,
-    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"]::before,
-    [data-testid="stCameraInput"] > div > button:first-of-type::before {
-        content: "";
-        position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 52px; height: 52px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
-    }
-
-    /* Switch camera / clear — subtle, not a second shutter */
-    [data-testid="stCameraInput"] button:not([kind="primary"]):not([kind="primaryFormSubmit"]):not(:first-of-type) {
-        width: auto !important;
-        height: 32px !important;
-        min-width: auto !important;
-        max-width: none !important;
-        background: rgba(255,255,255,0.12) !important;
-        color: rgba(255,255,255,0.8) !important;
-        border: none !important;
-        border-radius: 10px !important;
-        font-size: 12px !important;
-        font-weight: 600 !important;
-        padding: 4px 12px !important;
-        margin: 6px auto !important;
-        box-shadow: none !important;
-        display: inline-flex !important;
-    }
-    [data-testid="stCameraInput"] button:not([kind="primary"]):not([kind="primaryFormSubmit"]):not(:first-of-type)::before {
-        display: none !important;
-    }
-
-    [data-testid="stCameraInput"] label,
-    [data-testid="stCameraInput"] [data-testid="stWidgetLabel"] {
-        display: none !important;
-    }
-
-    /* Loader card during API call */
-    .nq-loader-card {
-        background: #ffffff; border-radius: 28px; padding: 36px 24px;
-        text-align: center; box-shadow: 0 10px 32px rgba(91,71,180,0.15);
-        margin: 24px auto; max-width: 520px;
-    }
-    .nq-loader-emoji {
-        font-size: 72px;
-        animation: nq-loader-bounce 1.4s ease-in-out infinite;
-        display: inline-block;
-    }
-    @keyframes nq-loader-bounce {
-        0%,100% { transform: translateY(0) rotate(-6deg); }
-        50%     { transform: translateY(-12px) rotate(6deg); }
-    }
-    .nq-loader-text { font-size: 24px; font-weight: 800; color: #4a3ea0; margin-top: 16px; }
-    .nq-loader-bar {
-        margin: 20px auto 0; height: 10px; width: 85%; max-width: 360px;
-        background: #e9e5fa; border-radius: 999px; overflow: hidden; position: relative;
-    }
-    .nq-loader-bar::before {
-        content: ""; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
-        background: linear-gradient(90deg, #7b6fd4, #e86fa0); border-radius: 999px;
-        animation: nq-loader-slide 1.6s ease-in-out infinite;
-    }
-    @keyframes nq-loader-slide { 0%{ left:-40%; } 100% { left:100%; } }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="nq-header">
-      <div class="nq-avatar">{get_character_emoji()}</div>
-      <span class="nq-title">📸 وقت التصوير!</span>
-      <div style="width:44px;"></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ========================================================================
-    # STATE MACHINE:
-    #   pending_capture (bytes) → confirm screen (✅ / 🔄)
-    #   captured_image  (bytes) → processed by API, show next-step buttons
-    #   neither                 → live camera
-    # ========================================================================
-    captured = st.session_state.get("captured_image")
     pending = st.session_state.get("pending_capture")
 
-    # --------- State 3: photo confirmed & processed by API ---------
-    if captured:
-        st.markdown('<div class="nq-instruction">'
-                    '<span class="nq-instruction-icon">🎉</span>'
-                    '<p class="nq-instruction-text">رائع! تعرّفت على الشيء</p>'
-                    '</div>', unsafe_allow_html=True)
-        st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
-        st.image(captured, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        col1, col2, col3 = st.columns([1.1, 1.9, 1])
-        with col1:
-            if st.button("⬅ رجوع", use_container_width=True, key="camera_back"):
-                go_to_page("characters")
-        with col2:
-            if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
-                go_to_page("results")
-        with col3:
-            if st.button("↩️ إعادة", use_container_width=True, key="retake_after"):
-                reset_prediction()
-                st.session_state.pop("cam_input", None)
-                st.rerun()
-        return
-
-    # --------- State 2: photo taken, awaiting user confirmation ---------
+    # ── Confirmation view (Page 4) ───────────────────────────────────────
     if pending:
-        st.markdown('<div class="nq-instruction">'
-                    '<span class="nq-instruction-icon">👀</span>'
-                    '<p class="nq-instruction-text">هل هذه الصورة جيدة؟</p>'
-                    '</div>', unsafe_allow_html=True)
+        show_model_picker()
+
+        st.markdown(
+            '<div class="nq-instruction">'
+            '<span class="nq-instruction-icon">👀</span>'
+            '<p class="nq-instruction-text">هل هذه الصورة جيدة؟</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
         st.image(pending, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        col_use, col_retake = st.columns(2, gap="large")
+        col_use, col_retake = st.columns(2, gap="small")
         with col_use:
             confirm_clicked = st.button(
                 "✅ استخدم هذه الصورة",
-                use_container_width=True,
-                type="primary",
-                key="confirm_pic",
+                use_container_width=True, type="primary", key="confirm_pic",
             )
         with col_retake:
             if st.button("🔄 صورة جديدة", use_container_width=True, key="retake_pending"):
@@ -1143,170 +851,252 @@ def show_camera_page():
                 st.session_state.pop("cam_input", None)
                 st.rerun()
 
+        # ⬇ Once the user confirms, call the API and GO STRAIGHT TO RESULTS.
         if confirm_clicked:
-            loader_placeholder = st.empty()
-            loader_placeholder.markdown("""
-            <div class="nq-loader-card">
-              <div class="nq-loader-emoji">🤖</div>
-              <div class="nq-loader-text">نطوق يفكر...</div>
-              <div class="nq-loader-bar"></div>
-            </div>
-            """, unsafe_allow_html=True)
+            placeholder = st.empty()
+            placeholder.markdown(
+                """
+                <div class="nq-loader-card">
+                  <div class="nq-loader-emoji">🤖</div>
+                  <div class="nq-loader-text">المستكشف يفكر...</div>
+                  <div class="nq-loader-bar"></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            result = segment_image(("capture.jpg", pending, "image/jpeg"))
-            loader_placeholder.empty()
+            result = segment_image(
+                ("capture.jpg", pending, "image/jpeg"),
+                model_id=st.session_state.selected_model,
+            )
+            placeholder.empty()
 
             if "error" in result:
                 st.error(result["error"])
             else:
-                apply_segmentation_result(pending, "capture.jpg", result)
+                apply_segmentation_result(pending, result)
                 st.session_state.pending_capture = None
                 st.session_state.pop("cam_input", None)
+                # Direct jump to results — no intermediate page 5.
+                st.session_state.current_page = "results"
                 st.rerun()
         return
 
-    # --------- State 1: live camera ---------
+    # ── Live camera view (Page 3) ────────────────────────────────────────
+    show_model_picker()
+
+    # Gendered instruction
     st.markdown(
-        '<div class="nq-instruction">'
-        '<span class="nq-instruction-icon">🎯</span>'
-        '<p class="nq-instruction-text">ضع الشيء داخل المربع المضيء ثم اضغطي على الزر البنفسجي</p>'
-        '</div>',
+        f'<div class="nq-instruction">'
+        f'<span class="nq-instruction-icon">🎯</span>'
+        f'<p class="nq-instruction-text">{gendered_place_hint()}</p>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
     cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
-
-    # On snap: crop to 62% centered square (matches the visual framing) and stash as pending
     if cam_shot is not None:
         cropped_bytes = _center_square_crop(cam_shot.getvalue())
         st.session_state.pending_capture = cropped_bytes
         st.rerun()
 
-    # Back button
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
         go_to_page("characters")
 
-# =============================
-# Results page
-# =============================
+# =============================================================================
+# Page 6 — Results
+# =============================================================================
 def to_eastern(n: int) -> str:
     return str(n).translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
 
 
+def autoplay_audio(audio_bytes: bytes) -> None:
+    """
+    Embed an HTML5 <audio> element that autoplays on page load.
+    st.audio does not autoplay — this is the reliable TTS trigger.
+    """
+    if not audio_bytes:
+        return
+    b64 = base64.b64encode(audio_bytes).decode("ascii")
+    # controls included so the user can replay; autoplay for instant feedback
+    st.markdown(
+        f"""
+        <audio autoplay controls style="width:100%; margin-top:6px;">
+          <source src="data:audio/mp3;base64,{b64}" type="audio/mpeg">
+        </audio>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+MODEL_LABELS = {
+    "custom":        ("🎯 نموذج الأطفال",   "nq-model-custom"),
+    "google_vision": ("🌐 Google Vision",  "nq-model-google_vision"),
+    "imagga":        ("🏷️ Imagga",         "nq-model-imagga"),
+}
+
+
 def show_results_page():
     show_selected_character_badge()
-    st.markdown(f"""
-    <div class="nq-header">
-      <div class="nq-avatar">{get_character_emoji()}</div>
-      <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>
-      <div class="nq-back">›</div>
-    </div>
-    """, unsafe_allow_html=True)
 
-    captured = st.session_state.get("captured_image")
-    annotated = st.session_state.get("annotated_image")
-    word = st.session_state.get("predicted_label", "غير معروف")
-    conf = st.session_state.get("predicted_conf", "0٪")
-    coverage = st.session_state.get("predicted_coverage", 0.0)
-    audio_word = st.session_state.get("audio_word")
-    audio_combined = st.session_state.get("audio_combined")
-    audio_letters = st.session_state.get("audio_letters", [])
+    st.markdown(
+        f'<div class="nq-header">'
+        f'  <div class="nq-avatar">{get_character_emoji()}</div>'
+        f'  <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>'
+        f'  <div class="nq-header-spacer"></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-    # --- Image card: toggle between the original and the segmented version
-    st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
-    show_seg = st.toggle("عرض الصورة مع تمييز الجزء المكتشف", value=True, key="show_seg_toggle")
-    if show_seg and annotated:
-        st.image(annotated, use_container_width=True)
+    captured        = st.session_state.get("captured_image")
+    annotated       = st.session_state.get("annotated_image")
+    word_ar         = st.session_state.get("predicted_label", "غير معروف")
+    word_en         = st.session_state.get("predicted_label_en", "")
+    conf            = st.session_state.get("predicted_conf", "0٪")
+    coverage        = st.session_state.get("predicted_coverage", 0.0)
+    audio_word      = st.session_state.get("audio_word")
+    audio_combined  = st.session_state.get("audio_combined")
+    audio_letters   = st.session_state.get("audio_letters", [])
+    model_used      = st.session_state.get("model_used", "")
+    tts_voice       = st.session_state.get("tts_voice", "")
+
+    # ── Model + TTS badges ───────────────────────────────────────────────
+    if model_used or tts_voice:
+        badge_html = '<div style="margin-bottom:6px; direction:rtl;">'
+        if model_used in MODEL_LABELS:
+            label, cls = MODEL_LABELS[model_used]
+            badge_html += f'<span class="nq-model-badge {cls}">{label}</span>'
+        if tts_voice:
+            voice_label = tts_voice.replace("Neural", "").replace("ar-SA-", "")
+            badge_html += f'<span class="nq-tts-badge">🔊 {voice_label}</span>'
+        badge_html += '</div>'
+        st.markdown(badge_html, unsafe_allow_html=True)
+
+    # ── Segmentation image with ENGLISH label overlay ────────────────────
+    # The backend already masked the object and burned an Arabic label in the
+    # top-right. We paint an English label over that same spot so the
+    # displayed label ends up in English (per spec).
+    try:
+        conf_pct = float(conf.replace("٪", "").replace("%", "")) if conf else 0.0
+    except Exception:
+        conf_pct = 0.0
+
+    display_bytes = None
+    if annotated and word_en:
+        display_bytes = overlay_english_label(annotated, word_en, conf_pct)
+    elif annotated:
+        display_bytes = annotated
     elif captured:
-        st.image(captured, use_container_width=True)
+        display_bytes = captured
+
+    is_cloud = model_used in ("google_vision", "imagga")
+
+    st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
+    if display_bytes:
+        st.image(display_bytes, use_container_width=True)
     else:
-        st.markdown("""
-        <div class="nq-img-placeholder">
-          <div style="font-size:56px">🖼️</div>
-          <span>الصورة الملتقطة تظهر هنا</span>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown(f'<div class="nq-seg-badge">✓ تم التعرف ({coverage:.1f}%)</div>', unsafe_allow_html=True)
+        st.info("لا توجد صورة لعرضها.")
+    if not is_cloud:
+        st.markdown(
+            f'<div class="nq-seg-badge">✓ {coverage:.1f}%</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown('<div class="nq-seg-badge">✓ تم التعرف</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- Word card
-    st.markdown(f"""
-    <div class="nq-word-card">
-      <div class="word-lbl">تعرّفت على:</div>
-      <div class="word-row">
-        <div class="word-left">
-          <div class="word-arabic">{word}</div>
+    # ── Word card (Arabic word + English meaning + confidence) ───────────
+    meaning_html = (
+        f'<div class="meaning-lbl">المعنى بالإنجليزية</div>'
+        f'<div class="meaning-en">{word_en}</div>'
+        if word_en else ""
+    )
+    st.markdown(
+        f"""
+        <div class="nq-word-card">
+          <div class="word-lbl">تعرّفت على:</div>
+          <div class="word-row">
+            <div class="word-arabic">{word_ar}</div>
+            <div class="conf-pill">{conf}</div>
+          </div>
+          {meaning_html}
+          <div class="audio-lbl" style="margin-top:10px;">🔊 استمع للكلمة</div>
         </div>
-        <div class="conf-pill">{conf}</div>
-      </div>
-      <div class="audio-lbl">🔊 استمع للكلمة</div>
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
-    # --- Main audio: word → letters → word, as one track
-    main_audio = audio_combined or audio_word
-    if main_audio:
-        st.audio(_decode_data_uri(main_audio), format="audio/mp3")
+    # ── TTS: autoplay once, plus a controls bar for replay ──────────────
+    main_audio_b64 = audio_combined or audio_word
+    main_bytes     = _decode_data_uri(main_audio_b64) if main_audio_b64 else None
+
+    if main_bytes:
+        if not st.session_state.audio_autoplayed:
+            autoplay_audio(main_bytes)
+            st.session_state.audio_autoplayed = True
+        else:
+            # Already played once — give a normal controls bar for replay
+            st.audio(main_bytes, format="audio/mp3")
     else:
         st.info("🔇 لم يتوفر صوت لهذه الكلمة")
 
-    # --- Spelling bubbles (visual)
-    letters = st.session_state.get("predicted_spelling", []) or list(word)
+    # ── Spelling bubbles ─────────────────────────────────────────────────
+    letters = st.session_state.get("predicted_spelling", []) or list(word_ar)
     bubbles = "".join(
-        f'<div class="spell-bubble"><span>{ch}</span><span class="ltr-num">{to_eastern(i + 1)}</span></div>'
+        f'<div class="spell-bubble"><span>{ch}</span>'
+        f'<span class="ltr-num">{to_eastern(i + 1)}</span></div>'
         for i, ch in enumerate(letters)
     )
-    st.markdown(f"""
-    <div class="nq-spell-card">
-      <div class="spell-hdr">
-        <span class="spell-hdr-icon">🔤</span>
-        <span class="spell-hdr-lbl">كيف تُكتب؟</span>
-      </div>
-      <div class="spell-bubbles">{bubbles}</div>
-      <div class="spell-hint">استمع لكل حرف بالترتيب</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="nq-spell-card">
+          <div class="spell-hdr">
+            <span style="font-size:20px;">🔤</span>
+            <span class="spell-hdr-lbl">كيف تُكتب؟</span>
+          </div>
+          <div class="spell-bubbles">{bubbles}</div>
+          <div class="spell-hint">استمع لكل حرف بالترتيب</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    # --- Per-letter audio (one player per letter)
+    # ── Per-letter audio ────────────────────────────────────────────────
     if audio_letters:
         letter_cols = st.columns(min(len(audio_letters), 6))
         for i, item in enumerate(audio_letters):
             col = letter_cols[i % len(letter_cols)]
             with col:
-                st.markdown(f"<div style='text-align:center;font-size:28px;font-weight:900;color:#18264a'>{item.get('letter','')}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='text-align:center;font-size:26px;font-weight:900;"
+                    f"color:#18264a'>{item.get('letter','')}</div>",
+                    unsafe_allow_html=True,
+                )
                 audio_data = _decode_data_uri(item.get("audio", ""))
                 if audio_data:
                     st.audio(audio_data, format="audio/mp3")
 
-    col1, col2, col3 = st.columns([1, 1, 1])
+    # ── Action buttons ──────────────────────────────────────────────────
+    col1, col2 = st.columns(2, gap="small")
     with col1:
-        if st.button("⬅ رجوع", use_container_width=True, key="results_back"):
-            go_to_page("camera")
-    with col2:
-        if st.button("📷 التقط صورة أخرى", use_container_width=True, key="capture_again"):
+        if st.button("📷 صورة أخرى", use_container_width=True, key="capture_again"):
             reset_prediction()
             go_to_page("camera")
-    with col3:
-        if st.button("⭐ احفظ الكلمة", use_container_width=True, type="primary", key="save_word"):
+    with col2:
+        if st.button("⭐ احفظ الكلمة", use_container_width=True,
+                     type="primary", key="save_word"):
             st.success("✅ تم الحفظ!")
 
-# =============================
+# =============================================================================
 # Router
-# =============================
-# =============================
-# Router
-# =============================
+# =============================================================================
 page = st.session_state.current_page
-
 if page == "welcome":
-    set_welcome_background()  # تظهر الخلفية هنا فقط
     show_welcome_page()
+elif page == "characters":
+    show_character_page()
+elif page == "camera":
+    show_camera_page()
 else:
-    reset_background()       # يتم حذف الخلفية فور الانتقال لأي صفحة أخرى
-    if page == "characters":
-        show_character_page()
-    elif page == "camera":
-        show_camera_page()
-    else:
-        show_results_page()
+    show_results_page()
