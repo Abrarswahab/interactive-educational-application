@@ -66,11 +66,14 @@ def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.65) -> bytes:
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
+        # The crop must be exactly what is inside the guide frame.
+        # Based on the original crop logic and guide placement:
         side = int(min(w, h) * guide_ratio)
         left = (w - side) // 2
         top = (h - side) // 2
         cropped = img.crop((left, top, left + side, top + side))
         buf = io.BytesIO()
+        # Maintain aspect ratio (1:1), but keep native square resolution.
         cropped.save(buf, format="JPEG", quality=92)
         return buf.getvalue()
     except Exception:
@@ -104,11 +107,14 @@ def segment_image(image_source) -> dict:
         else:
             return {"error": "صيغة الصورة غير مدعومة."}
 
-        files = {"file": (name, data, mime)}
+        # Apply the crop BEFORE sending to API
+        cropped_data = _center_square_crop(data)
+        files = {"file": (name, cropped_data, mime)}
         response = requests.post(f"{API_URL}/segment", files=files, timeout=120)
 
         if response.status_code == 200:
-            return response.json()
+            # Save cropped image for results page.
+            return {"api_result": response.json(), "cropped_image": cropped_data}
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
@@ -123,18 +129,22 @@ def segment_image(image_source) -> dict:
 
 
 def apply_segmentation_result(source_bytes: bytes, source_name: str, result: dict) -> None:
-    st.session_state.captured_image = source_bytes
+    # Use the cropped image from segment_image
+    st.session_state.captured_image = result["cropped_image"]
     st.session_state.captured_name = source_name
-    st.session_state.annotated_image = _decode_data_uri(result.get("annotated_image", ""))
-    st.session_state.predicted_label = result.get("label_ar", "غير معروف")
-    st.session_state.predicted_label_en = result.get("label_en", "")
-    conf_value = result.get("confidence", 0) or 0
+
+    # Process API response
+    api_data = result["api_result"]
+    st.session_state.annotated_image = _decode_data_uri(api_data.get("annotated_image", ""))
+    st.session_state.predicted_label = api_data.get("label_ar", "غير معروف")
+    st.session_state.predicted_label_en = api_data.get("label_en", "")
+    conf_value = api_data.get("confidence", 0) or 0
     st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
-    st.session_state.predicted_coverage = result.get("coverage_percent", 0.0)
-    st.session_state.predicted_spelling = result.get("spelling", [])
-    st.session_state.audio_word = result.get("audio_word")
-    st.session_state.audio_letters = result.get("audio_letters", [])
-    st.session_state.audio_combined = result.get("audio_combined")
+    st.session_state.predicted_coverage = api_data.get("coverage_percent", 0.0)
+    st.session_state.predicted_spelling = api_data.get("spelling", [])
+    st.session_state.audio_word = api_data.get("audio_word")
+    st.session_state.audio_letters = api_data.get("audio_letters", [])
+    st.session_state.audio_combined = api_data.get("audio_combined")
 
 
 def reset_prediction():
@@ -880,6 +890,7 @@ def show_camera_page():
             </div>
             """, unsafe_allow_html=True)
 
+            # Pass raw pending data; segment_image will crop and then call API.
             result = segment_image(("capture.jpg", pending, "image/jpeg"))
             loader_placeholder.empty()
 
@@ -901,14 +912,16 @@ def show_camera_page():
         unsafe_allow_html=True,
     )
 
+    # st.camera_input handles raw image capture.
     cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
 
     if cam_shot is not None:
-        cropped_bytes = _center_square_crop(cam_shot.getvalue())
-        st.session_state.pending_capture = cropped_bytes
+        # Keep raw capture; crop happens on confirmation to match the guide.
+        st.session_state.pending_capture = cam_shot.getvalue()
         st.rerun()
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    # Place Back button safely at the bottom.
+    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
     if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
         go_to_page("characters")
 
