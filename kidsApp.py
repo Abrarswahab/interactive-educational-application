@@ -614,40 +614,32 @@ def show_welcome_page():
             unsafe_allow_html=True,
         )
 
-    # ── Centered content wrapper ─────────────────────────────────────────
-    # Build logo as base64 so it sits inside the HTML block (avoids extra spacing)
-    logo_html = ""
+    # ── Logo ─────────────────────────────────────────────────────────────
     if os.path.exists(logo_path):
-        with open(logo_path, "rb") as _lf:
-            _logo_b64 = base64.b64encode(_lf.read()).decode()
-        logo_html = (
-            f'<div class="welcome-logo">'
-            f'<img src="data:image/png;base64,{_logo_b64}" width="130" alt="logo">'
-            f'</div>'
-        )
+        col_l, col_c, col_r = st.columns([1, 2, 1])
+        with col_c:
+            st.image(logo_path, use_container_width=True)
 
+    # ── Text content ─────────────────────────────────────────────────────
     st.markdown(
-        f'<div class="welcome-wrap">'
-        f'  {logo_html}'
-        f'  <div class="welcome-title-c">ابدأ رحلتك</div>'
-        f'  <div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>'
-        f'  <div class="welcome-desc-c">'
-        f'    في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
-        f'  </div>'
-        f'  <div class="welcome-pills">'
-        f'    <span class="pill-sm">🌈 ممتع</span>'
-        f'    <span class="pill-sm">🧠 ذكي</span>'
-        f'    <span class="pill-sm">✨ للأطفال</span>'
-        f'  </div>'
-        f'</div>',
+        '<div class="welcome-title-c">ابدأ رحلتك</div>'
+        '<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>'
+        '<div class="welcome-desc-c" style="margin-top:10px;">'
+        '  في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
+        '</div>'
+        '<div class="welcome-pills" style="margin-top:12px;">'
+        '  <span class="pill-sm">🌈 ممتع</span>'
+        '  <span class="pill-sm">🧠 ذكي</span>'
+        '  <span class="pill-sm">✨ للأطفال</span>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Full-width CTA pinned to bottom ──────────────────────────────────
-    st.markdown('<div class="welcome-btn-wrap">', unsafe_allow_html=True)
-    if st.button("أستكشف!", key="start_welcome", type="primary", use_container_width=True):
+    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+
+    # ── Full-width CTA — rendered as a normal Streamlit widget ───────────
+    if st.button("أستكشف! 🚀", key="start_welcome", type="primary", use_container_width=True):
         go_to_page("characters")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
 # Page 2 — Character selection (side-by-side, full-width buttons)
