@@ -643,22 +643,22 @@ def show_camera_page():
     show_selected_character_badge()
 
     # ===============================================================
-    # FIXED CSS for reliable camera guide overlay
+    # PERFECT CAMERA GUIDE – matches your screenshot, works on all phones
     # ===============================================================
     st.markdown("""
     <style>
-    /* Camera container: relative positioning, no overflow clipping */
+    /* Camera container – relative, no clipping */
     [data-testid="stCameraInput"] {
         position: relative !important;
         border-radius: 24px !important;
         background: #1a1a2e !important;
         box-shadow: 0 8px 28px rgba(91,71,180,0.30) !important;
-        padding: 12px 12px 90px !important;   /* bottom space for shutter */
+        padding: 12px 12px 90px !important;
         margin: 0 auto 12px !important;
-        overflow: visible !important;          /* critical: allow pseudo-elements outside */
+        overflow: visible !important;
     }
 
-    /* Video / captured image inside */
+    /* Video element – full width, rounded */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
         border-radius: 16px !important;
@@ -666,73 +666,58 @@ def show_camera_page():
         display: block !important;
     }
 
-    /* ----- GLOWING GUIDE SQUARE (centered over video) ----- */
+    /* ===== MAIN GUIDE SQUARE ===== */
     [data-testid="stCameraInput"]::after {
         content: "ضع الشيء هنا";
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 62%;
+        width: 65%;
         aspect-ratio: 1 / 1;
-        border-radius: 20px;
-        border: 2.5px solid rgba(200,185,255,0.9);
-        background: rgba(0,0,0,0.05);   /* slight tint to see the guide */
+        border-radius: 24px;
+        border: 3px solid rgba(255, 215, 150, 0.9);
+        background: rgba(0, 0, 0, 0.08);
+        box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.4), 0 0 0 6px rgba(0,0,0,0.2);
         pointer-events: none;
         z-index: 15;
-        animation: nq-glow-pulse 2.2s ease-in-out infinite;
-
+        /* text styling */
         display: flex;
         align-items: flex-end;
         justify-content: center;
-        padding-bottom: 6px;
+        padding-bottom: 12px;
         font-family: 'Tajawal', sans-serif;
-        font-size: 12px;
-        font-weight: 600;
-        color: rgba(210,200,255,0.95);
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        font-size: 14px;
+        font-weight: 700;
+        color: rgba(255, 230, 170, 0.95);
+        text-shadow: 0 1px 3px black;
+        letter-spacing: 0.5px;
     }
 
-    /* ----- FOUR CORNER MARKS (aligned with the square) ----- */
+    /* ===== FOUR CORNER MARKS (aligned to the square) ===== */
     [data-testid="stCameraInput"]::before {
         content: "";
         position: absolute;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 62%;
+        width: 65%;
         aspect-ratio: 1 / 1;
         pointer-events: none;
         z-index: 14;
-        /* corner lines using background gradients */
+        /* corner lines – each corner has two perpendicular lines */
         background:
-            linear-gradient(to right,  rgba(255,255,255,0.8) 18px, transparent 18px) top 8px right 8px / 40px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.8) 18px, transparent 18px) top 8px right 8px / 2px 40px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.8) 18px, transparent 18px) top 8px left 8px  / 40px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.8) 18px, transparent 18px) top 8px left 8px  / 2px 40px no-repeat,
-            linear-gradient(to right,  rgba(255,255,255,0.8) 18px, transparent 18px) bottom 8px right 8px / 40px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.8) 18px, transparent 18px) bottom 8px right 8px / 2px 40px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.8) 18px, transparent 18px) bottom 8px left 8px  / 40px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.8) 18px, transparent 18px) bottom 8px left 8px  / 2px 40px no-repeat;
+            /* top-left */
+            linear-gradient(135deg, rgba(255,215,150,1) 12px, transparent 12px) top left / 24px 24px no-repeat,
+            /* top-right */
+            linear-gradient(225deg, rgba(255,215,150,1) 12px, transparent 12px) top right / 24px 24px no-repeat,
+            /* bottom-left */
+            linear-gradient(45deg, rgba(255,215,150,1) 12px, transparent 12px) bottom left / 24px 24px no-repeat,
+            /* bottom-right */
+            linear-gradient(315deg, rgba(255,215,150,1) 12px, transparent 12px) bottom right / 24px 24px no-repeat;
     }
 
-    /* Pulse animation */
-    @keyframes nq-glow-pulse {
-        0%,100% {
-            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
-                        0 0 18px 4px rgba(160,140,255,0.35),
-                        inset 0 0 18px 2px rgba(160,140,255,0.10);
-            border-color: rgba(200,185,255,0.85);
-        }
-        50% {
-            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
-                        0 0 32px 10px rgba(160,140,255,0.55),
-                        inset 0 0 24px 6px rgba(160,140,255,0.20);
-            border-color: rgba(220,210,255,1);
-        }
-    }
-
-    /* Shutter button – stays at bottom center */
+    /* Shutter button – stays at bottom center, unchanged */
     [data-testid="stCameraInput"] button {
         width: 72px !important;
         height: 72px !important;
