@@ -22,10 +22,31 @@ girl_path = "girl.png"
 boy_path = "boy.png"
 
 # =============================
-# API URL — hardcoded Railway backend
-# (change this one line if your Railway domain changes)
+# Backends — the user can pick between YOLO (the original) and Google Vision
+# (the new cloud backend). Just the URLs live here; everything else keys off
+# st.session_state.selected_model.
 # =============================
-API_URL = "https://interactive-educational-application-production.up.railway.app"
+BACKENDS = {
+    "yolo": {
+        "label": "🤖 YOLO (الافتراضي)",
+        "desc": "نموذج محلي بأسماء عربية وصوت",
+        "url": "https://interactive-educational-application-production.up.railway.app",
+        "endpoint": "/segment",
+    },
+    "vision": {
+        "label": "🔍 Google Vision",
+        "desc": "دقة عالية من خدمة Google السحابية",
+        # ⚠️ Replace this with YOUR deployed Render / Cloud Run URL
+        "url": "https://your-vision-backend.onrender.com",
+        "endpoint": "/detect",
+    },
+}
+
+
+def get_api_url() -> str:
+    """Return the base URL of the backend the user selected."""
+    model = st.session_state.get("selected_model", "yolo")
+    return BACKENDS.get(model, BACKENDS["yolo"])["url"]
 
 # =============================
 # Session State
@@ -58,6 +79,8 @@ if "audio_combined" not in st.session_state:
     st.session_state.audio_combined = None          # word → spelling → word, as one track
 if "pending_capture" not in st.session_state:
     st.session_state.pending_capture = None         # image bytes awaiting ✅/🔄 confirmation
+if "selected_model" not in st.session_state:
+    st.session_state.selected_model = "yolo"        # "yolo" or "vision"
 
 # =============================
 # API helpers
@@ -96,8 +119,9 @@ def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
 
 def check_api_health() -> dict:
     """Ping the backend so we can show status before the user wastes a capture."""
+    api_url = get_api_url()
     try:
-        r = requests.get(f"{API_URL}/health", timeout=5)
+        r = requests.get(f"{api_url}/health", timeout=5)
         if r.status_code == 200:
             return {"ok": True, "data": r.json()}
         return {"ok": False, "error": f"الخادم رد بـ {r.status_code}"}
@@ -109,13 +133,74 @@ def check_api_health() -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _translate_vision_to_yolo_shape(vision_json: dict) -> dict:
+    """
+    Google Vision /detect returns:
+        {"count": 2, "objects": [{"name": "Cat", "confidence": 0.94}, ...]}
+
+    The rest of kidsApp expects YOLO's richer /segment shape (Arabic label,
+    coverage %, annotated image, audio, spelling). We fill in the fields we
+    can — the others gracefully degrade (no annotated image, no audio).
+
+    Arabic translation is done client-side via the free Google Translate TTS
+    URL trick you already use elsewhere — kept lightweight so we don't add
+    deps.
+    """
+    objs = vision_json.get("objects") or []
+    if not objs:
+        return {}
+
+    top = objs[0]
+    label_en = top.get("name", "")
+    confidence = float(top.get("confidence", 0.0))
+
+    # Best-effort Arabic translation via Google Translate's public endpoint.
+    # If it fails we just fall back to the English name — the app still works.
+    label_ar = label_en
+    try:
+        import urllib.parse
+        import urllib.request
+        q = urllib.parse.quote(label_en)
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q={q}"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = r.read().decode("utf-8")
+            import json as _json
+            parsed = _json.loads(data)
+            label_ar = parsed[0][0][0] or label_en
+    except Exception:
+        pass
+
+    spelling = [ch for ch in label_ar if ch.strip()]
+
+    return {
+        "label_ar": label_ar,
+        "label_en": label_en,
+        "confidence": confidence,
+        "coverage_percent": 0.0,       # Vision doesn't do segmentation
+        "spelling": spelling,
+        "annotated_image": "",         # no mask overlay from Vision
+        "audio_word": None,            # no server-side TTS on Vision backend
+        "audio_letters": [],
+        "audio_combined": None,
+    }
+
+
 def segment_image(image_source) -> dict:
     """
-    Send an image to /segment. Accepts:
+    Send an image to the active backend. Accepts:
       - a Streamlit UploadedFile (file_uploader or camera_input)
       - raw bytes
-    Returns the parsed JSON response, or {"error": "..."} on failure.
+      - a (name, bytes, mime) tuple
+    Returns a YOLO-shaped dict so the rest of the app doesn't care which
+    model ran. Returns {"error": "..."} on failure.
     """
+    model = st.session_state.get("selected_model", "yolo")
+    backend = BACKENDS.get(model, BACKENDS["yolo"])
+    api_url = backend["url"]
+    endpoint = backend["endpoint"]
+    # Vision is much faster than YOLO+TTS, so shorter timeout is fine.
+    timeout = 30 if model == "vision" else 120
+
     try:
         if hasattr(image_source, "getvalue"):
             name = getattr(image_source, "name", "capture.jpg")
@@ -129,18 +214,24 @@ def segment_image(image_source) -> dict:
             return {"error": "صيغة الصورة غير مدعومة."}
 
         files = {"file": (name, data, mime)}
-        # YOLO on CPU + TTS calls can take a while on Railway's free tier
-        response = requests.post(f"{API_URL}/segment", files=files, timeout=120)
+        response = requests.post(f"{api_url}{endpoint}", files=files, timeout=timeout)
 
         if response.status_code == 200:
-            return response.json()
+            result = response.json()
+            # Normalize Vision's shape to match what the UI expects
+            if model == "vision":
+                result = _translate_vision_to_yolo_shape(result)
+                if not result:
+                    return {"error": "لم يتم التعرف على أي شيء في الصورة."}
+            return result
+
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
         return {"error": f"API error {response.status_code}: {detail}"}
     except requests.exceptions.ConnectionError:
-        return {"error": f"تعذر الاتصال بالخادم على {API_URL}."}
+        return {"error": f"تعذر الاتصال بالخادم على {api_url}."}
     except requests.exceptions.Timeout:
         return {"error": "النموذج استغرق وقتاً طويلاً — حاولي مرة أخرى."}
     except Exception as e:
@@ -700,6 +791,30 @@ def show_welcome_page():
         st.markdown('<div class="floating-image">', unsafe_allow_html=True)
         st.image(kids_image_path, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- Model selector ---------------------------------------------------
+    st.markdown(
+        '<div style="text-align:center; margin-top:18px; font-size:18px; '
+        'font-weight:700; color:var(--text-dark);">اختر نموذج التعرّف 🧠</div>',
+        unsafe_allow_html=True,
+    )
+    model_labels = {key: b["label"] for key, b in BACKENDS.items()}
+    current = st.session_state.get("selected_model", "yolo")
+    choice_key = st.radio(
+        label="نموذج التعرّف",
+        options=list(model_labels.keys()),
+        format_func=lambda k: model_labels[k],
+        index=list(model_labels.keys()).index(current),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="model_radio",
+    )
+    st.session_state.selected_model = choice_key
+    st.markdown(
+        f'<div style="text-align:center; font-size:14px; color:var(--text-mid); '
+        f'margin-top:4px;">{BACKENDS[choice_key]["desc"]}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="start-btn">', unsafe_allow_html=True)
     if st.button("ابدأ", key="start_welcome"):
