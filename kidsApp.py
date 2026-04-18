@@ -374,15 +374,21 @@ html, body,
 }
 .welcome-wrap {
   position: relative; z-index: 2;
-  display: flex; flex-direction: column; align-items: center;
-  text-align: center;
-  height: calc(100vh - 60px);
-  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 14px; padding: 0 4px;
-  overflow: hidden;
+  text-align: center;
+  height: 90dvh;
+  width: 100%;
+  padding: 20px;
+  gap: 10px;
 }
-.welcome-logo { margin-bottom: 0px; }
+.welcome-logo-container img {
+  max-width: 180px;
+  height: auto;
+  margin-bottom: 5px;
+}
 .welcome-title-c { font-size: 32px; font-weight: 900; color: #18264a; line-height: 1.15; }
 .welcome-subtitle-c { font-size: 17px; font-weight: 800; color: #6d7792; }
 .welcome-desc-c {
@@ -601,43 +607,53 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 # Page 1 — Welcome (compact, no scroll, full-width أستكشف!)
 # =============================================================================
 def show_welcome_page():
-    # ── kids.png background (fixed, layered behind everything) ──────────
+    # 1. Background
     bg_path = "kids.png"
     if os.path.exists(bg_path):
-        with open(bg_path, "rb") as _f:
-            _bg_b64 = base64.b64encode(_f.read()).decode()
+        with open(bg_path, "rb") as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
         _ext = bg_path.rsplit(".", 1)[-1].lower()
         _mime = "image/png" if _ext == "png" else "image/jpeg"
         st.markdown(
-            f'<div class="welcome-bg" style="background-image:url(\'data:{_mime};base64,{_bg_b64}\');"></div>'
+            f'<div class="welcome-bg" style="background-image:url(\'data:{_mime};base64,{bg_b64}\');"></div>'
             f'<div class="welcome-bg-overlay"></div>',
             unsafe_allow_html=True,
         )
 
-    # ── Logo ─────────────────────────────────────────────────────────────
+    # 2. Logo as base64 inside welcome-wrap (avoids separate Streamlit widget blocks)
+    logo_html = ""
     if os.path.exists(logo_path):
-        col_l, col_c, col_r = st.columns([1, 2, 1])
-        with col_c:
-            st.image(logo_path, use_container_width=True)
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+        lext = logo_path.rsplit(".", 1)[-1].lower()
+        lmime = "image/png" if lext == "png" else "image/jpeg"
+        logo_html = (
+            f'<div class="welcome-logo-container">'
+            f'<img src="data:{lmime};base64,{logo_b64}" alt="">'
+            f"</div>"
+        )
 
-    # ── Text content ─────────────────────────────────────────────────────
+    # 3. Single centered HTML block (flex layout in CSS)
     st.markdown(
-        '<div class="welcome-title-c">ابدأ رحلتك</div>'
-        '<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>'
-        '<div class="welcome-desc-c" style="margin-top:10px;">'
-        '  في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
-        '</div>'
-        '<div class="welcome-pills" style="margin-top:12px;">'
-        '  <span class="pill-sm">🌈 ممتع</span>'
-        '  <span class="pill-sm">🧠 ذكي</span>'
-        '  <span class="pill-sm">✨ للأطفال</span>'
-        '</div>',
+        f"""
+        <div class="welcome-wrap">
+            {logo_html}
+            <div class="welcome-title-c">ابدأ رحلتك</div>
+            <div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>
+            <div class="welcome-desc-c">
+                في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.
+            </div>
+            <div class="welcome-pills">
+                <span class="pill-sm">🌈 ممتع</span>
+                <span class="pill-sm">🧠 ذكي</span>
+                <span class="pill-sm">✨ للأطفال</span>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
-
-    # ── Full-width CTA — rendered as a normal Streamlit widget ───────────
+    # 4. Streamlit button after markup so clicks are handled normally
     if st.button("أستكشف! 🚀", key="start_welcome", type="primary", use_container_width=True):
         go_to_page("characters")
 
