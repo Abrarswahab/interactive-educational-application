@@ -286,8 +286,21 @@ html, body,
 .card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
 .card:hover { transform: translateY(-4px); box-shadow: 0 16px 28px rgba(42,58,95,0.12); }
 
-.img-box-girl { background:#efd7ee; border-radius:20px; padding:14px; margin-bottom:12px; }
-.img-box-boy  { background:#dbeaf7; border-radius:20px; padding:14px; margin-bottom:12px; }
+.img-box-girl { background:#efd7ee; border-radius:20px; padding:10px; margin-bottom:12px; }
+.img-box-boy  { background:#dbeaf7; border-radius:20px; padding:10px; margin-bottom:12px; }
+
+/* ==== FIX: character card images fill the column width ==== */
+.img-box-girl [data-testid="stImage"],
+.img-box-boy  [data-testid="stImage"] {
+    width: 100% !important;
+}
+.img-box-girl [data-testid="stImage"] img,
+.img-box-boy  [data-testid="stImage"] img {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+}
 
 .char-name {
     font-size: 20px; font-weight: 900; color: #18264a;
@@ -298,10 +311,19 @@ html, body,
     text-align: center; margin-bottom: 8px; min-height: 72px;
 }
 
+/* ==== FIX: welcome kids image fills the column ==== */
 .floating-image {
     animation: floatImage 3.5s ease-in-out infinite;
     filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.10));
-    margin: 10px auto 4px; max-width: 300px;
+    margin: 10px auto 4px;
+    width: 100%;
+}
+.floating-image [data-testid="stImage"] {
+    width: 100% !important;
+}
+.floating-image [data-testid="stImage"] img {
+    width: 100% !important;
+    height: auto !important;
 }
 
 /* ===== Header (camera + results) ===== */
@@ -413,23 +435,38 @@ html, body,
   border-radius:16px !important; background:rgba(255,255,255,0.6) !important;
 }
 
-/* ===== Buttons (single consolidated rule with disabled state) ===== */
+/* ===== Buttons — full-width of their container ===== */
+/* stButton wrapper always stretches, so its button fills the column */
+div[data-testid="stButton"],
+div.stButton {
+  width: 100% !important;
+}
 div.stButton > button {
-  width: 100%; border: none; border-radius: 16px;
-  padding: 0.75rem 1rem; font-size: 16px; font-weight: 800;
+  width: 100% !important;
+  border: none;
+  border-radius: 16px;
+  padding: 0.85rem 1rem;
+  font-size: 16px;
+  font-weight: 800;
   color: white;
   background: linear-gradient(135deg, #745cff, #4d96ff);
   box-shadow: 0 10px 22px rgba(91,110,255,0.22);
   transition: 0.18s ease;
-  min-height: 44px; /* thumb-friendly */
+  min-height: 48px; /* thumb-friendly */
 }
 div.stButton > button:hover:not(:disabled) { transform: translateY(-2px); }
 div.stButton > button:disabled {
   opacity: 0.45; cursor: not-allowed; box-shadow: none;
 }
 
-.start-btn { max-width: 220px; margin: 18px auto 0; }
-.back-btn  { max-width: 140px; margin-bottom: 12px; }
+/* Primary (type="primary") button — bolder gradient */
+div.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--btn-blue), var(--btn-blue-dark));
+    box-shadow: 0 8px 20px rgba(91,141,232,0.35);
+}
+
+/* start-btn / back-btn used to clamp max-width — now FULL width on phones */
+.start-btn, .back-btn { width: 100%; margin: 14px 0; }
 
 [data-testid="stImage"] img { border-radius:18px; box-shadow:0 4px 16px rgba(91,71,180,0.14); }
 
@@ -504,24 +541,23 @@ def show_welcome_page():
         unsafe_allow_html=True,
     )
 
+    # Kids image — now fills the page column (430px max), not a fixed 300px
     if os.path.exists(kids_image_path):
         st.markdown('<div class="floating-image">', unsafe_allow_html=True)
         st.image(kids_image_path, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+    # Full-width start button
     if st.button("ابدأ", key="start_welcome"):
         go_to_page("characters")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
 # Character page
 # =============================
 def show_character_page():
-    st.markdown('<div class="back-btn">', unsafe_allow_html=True)
+    # Full-width back button
     if st.button("⬅ رجوع", key="back_to_welcome"):
         go_to_page("welcome")
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(
         '<div class="main-title">اختَر <span class="highlight">شخصيتك</span></div>',
@@ -548,8 +584,9 @@ def show_character_page():
     with col_girl:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="img-box-girl">', unsafe_allow_html=True)
+        # use_container_width + CSS above = image fills its column
         if os.path.exists(girl_path):
-            st.image(Image.open(girl_path), width=140)
+            st.image(Image.open(girl_path), use_container_width=True)
         else:
             st.error("ملف girl.png غير موجود")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -567,7 +604,7 @@ def show_character_page():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="img-box-boy">', unsafe_allow_html=True)
         if os.path.exists(boy_path):
-            st.image(Image.open(boy_path), width=140)
+            st.image(Image.open(boy_path), use_container_width=True)
         else:
             st.error("ملف boy.png غير موجود")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -594,11 +631,10 @@ def show_character_page():
 
     st.markdown('<div class="note">لن تتمكن من المتابعة حتى تختار الشخصية.</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+    # Full-width start-learning button
     start_disabled = st.session_state.selected_character == ""
     if st.button("ابدأ التعلّم", key="start_learning_btn", disabled=start_disabled):
         go_to_page("camera")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
 # Camera page — HTML-style glowing overlay on st.camera_input
@@ -606,49 +642,60 @@ def show_character_page():
 def show_camera_page():
     show_selected_character_badge()
 
-    # The guide square + corner marks now sit DIRECTLY on the live video
-    # (on [data-testid="stCameraInput"] > div:first-child), not on the outer
-    # container — so they frame the subject exactly like page2_camera.html.
+    # ===============================================================
+    # The overlay strategy:
+    # Different Streamlit versions nest st.camera_input differently.
+    # Some put the <video> directly inside [data-testid="stCameraInput"],
+    # others wrap it in one or two intermediate divs.
+    # Rather than targeting a fragile specific child, we make the ENTIRE
+    # camera block `position: relative` and attach the guide square + corner
+    # marks to the whole [data-testid="stCameraInput"] itself.
+    # That always works because the selector is stable.
+    # The shutter button is anchored at the bottom, so the overlay above
+    # stays centered over the video area.
+    # ===============================================================
     st.markdown("""
     <style>
-    /* Outer dark frame */
+    /* Outer dark frame — this is the overlay anchor now */
     [data-testid="stCameraInput"] {
-        border-radius: 24px;
-        background: #1a1a2e;
-        box-shadow: 0 8px 28px rgba(91,71,180,0.30);
-        padding: 10px 10px 4px;
-        max-width: 100%;
-        margin: 0 auto 12px;
-        position: relative;
-        overflow: hidden;
+        border-radius: 24px !important;
+        background: #1a1a2e !important;
+        box-shadow: 0 8px 28px rgba(91,71,180,0.30) !important;
+        padding: 12px 12px 90px !important;  /* reserve bottom space for the shutter */
+        max-width: 100% !important;
+        margin: 0 auto 12px !important;
+        position: relative !important;
+        overflow: hidden !important;
     }
 
-    /* Video wrapper — the overlay surface */
-    [data-testid="stCameraInput"] > div:first-child {
-        position: relative;
-        border-radius: 18px;
-        overflow: hidden;
-    }
-
+    /* Round video + captured still */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
-        border-radius: 18px !important;
+        border-radius: 16px !important;
         width: 100% !important;
         display: block !important;
     }
 
-    /* ==== GLOWING GUIDE SQUARE ==== */
-    [data-testid="stCameraInput"] > div:first-child::after {
+    /* ==== GLOWING GUIDE SQUARE — attached to the whole camera block ==== */
+    /* Positioned to sit over the video area (above the reserved shutter space) */
+    [data-testid="stCameraInput"]::after {
         content: "ضع الشيء هنا";
         position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        width: 62%;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        /* vertical: cover the video region only (container height minus shutter area) */
+        height: calc(100% - 110px);
         aspect-ratio: 1;
+        /* fallback — cap width to 62% of video area */
+        max-width: 62%;
+        max-height: 62%;
+        margin-top: calc((100% - 110px - 62%) / 2);
+
         border-radius: 20px;
         border: 2.5px solid rgba(200,185,255,0.9);
         pointer-events: none;
-        z-index: 4;
+        z-index: 6;
         animation: nq-glow-pulse 2.2s ease-in-out infinite;
 
         display: flex;
@@ -675,25 +722,29 @@ def show_camera_page():
         }
     }
 
-    /* ==== FOUR CORNER MARKS (inside the video area) ==== */
-    [data-testid="stCameraInput"] > div:first-child::before {
+    /* ==== FOUR CORNER MARKS — on the video area ==== */
+    [data-testid="stCameraInput"]::before {
         content: "";
         position: absolute;
-        top: 12px; bottom: 12px; left: 12px; right: 12px;
+        top: 22px;
+        left: 22px;
+        right: 22px;
+        /* stop above the shutter area */
+        bottom: 100px;
         pointer-events: none;
-        z-index: 3;
+        z-index: 5;
         background:
-            linear-gradient(to right,  rgba(255,255,255,0.5) 20px, transparent 20px) top left    / 20px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.5) 20px, transparent 20px) top left    / 2px 20px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.5) 20px, transparent 20px) top right   / 20px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.5) 20px, transparent 20px) top right   / 2px 20px no-repeat,
-            linear-gradient(to right,  rgba(255,255,255,0.5) 20px, transparent 20px) bottom left / 20px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.5) 20px, transparent 20px) bottom left / 2px 20px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.5) 20px, transparent 20px) bottom right/ 20px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.5) 20px, transparent 20px) bottom right/ 2px 20px no-repeat;
+            linear-gradient(to right,  rgba(255,255,255,0.55) 20px, transparent 20px) top left    / 20px 2px no-repeat,
+            linear-gradient(to bottom, rgba(255,255,255,0.55) 20px, transparent 20px) top left    / 2px 20px no-repeat,
+            linear-gradient(to left,   rgba(255,255,255,0.55) 20px, transparent 20px) top right   / 20px 2px no-repeat,
+            linear-gradient(to bottom, rgba(255,255,255,0.55) 20px, transparent 20px) top right   / 2px 20px no-repeat,
+            linear-gradient(to right,  rgba(255,255,255,0.55) 20px, transparent 20px) bottom left / 20px 2px no-repeat,
+            linear-gradient(to top,    rgba(255,255,255,0.55) 20px, transparent 20px) bottom left / 2px 20px no-repeat,
+            linear-gradient(to left,   rgba(255,255,255,0.55) 20px, transparent 20px) bottom right/ 20px 2px no-repeat,
+            linear-gradient(to top,    rgba(255,255,255,0.55) 20px, transparent 20px) bottom right/ 2px 20px no-repeat;
     }
 
-    /* Shutter button */
+    /* Shutter button — absolute-positioned at the bottom of the dark frame */
     [data-testid="stCameraInput"] button {
         width: 72px !important;
         height: 72px !important;
@@ -703,13 +754,25 @@ def show_camera_page():
         color: transparent !important;
         font-size: 0 !important;
         padding: 0 !important;
-        margin: 14px auto 6px !important;
+
+        /* Pin it to the bottom-center of the container */
+        position: absolute !important;
+        bottom: 12px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        margin: 0 !important;
+
         display: block !important;
         box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
         transition: transform 0.12s ease !important;
-        position: relative !important;
+        z-index: 10 !important;
     }
-    [data-testid="stCameraInput"] button:active { transform: scale(0.92) !important; }
+    [data-testid="stCameraInput"] button:hover {
+        transform: translateX(-50%) !important;  /* keep it centered on hover */
+    }
+    [data-testid="stCameraInput"] button:active {
+        transform: translateX(-50%) scale(0.92) !important;
+    }
     [data-testid="stCameraInput"] button::before {
         content: "";
         position: absolute;
@@ -770,7 +833,7 @@ def show_camera_page():
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Mobile: primary action on its own row, back+retake side-by-side below
+        # Primary on its own full-width row
         if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
             go_to_page("results")
 
@@ -796,7 +859,6 @@ def show_camera_page():
         st.image(pending, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # On phones, stack the buttons — easier to tap, no cramped columns
         confirm_clicked = st.button(
             "✅ استخدم هذه الصورة",
             use_container_width=True,
@@ -915,14 +977,12 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Main audio
     main_audio = audio_combined or audio_word
     if main_audio:
         st.audio(_decode_data_uri(main_audio), format="audio/mp3")
     else:
         st.info("🔇 لم يتوفر صوت لهذه الكلمة")
 
-    # --- Spelling bubbles with staggered entrance
     letters = st.session_state.get("predicted_spelling", []) or list(word)
     bubbles = "".join(
         f'<div class="spell-bubble" style="animation-delay:{i*0.07:.2f}s">'
@@ -941,7 +1001,6 @@ def show_results_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Per-letter audio: 3 per row on phones (was up to 6 — too cramped)
     if audio_letters:
         per_row = 3
         for row_start in range(0, len(audio_letters), per_row):
@@ -958,7 +1017,6 @@ def show_results_page():
                     if audio_data:
                         st.audio(audio_data, format="audio/mp3")
 
-    # Action buttons: primary on its own row, secondary side-by-side
     if st.button("⭐ احفظ الكلمة", use_container_width=True, type="primary", key="save_word"):
         st.success("✅ تم الحفظ!")
 
