@@ -11,3 +11,4 @@ arabic-reshaper==3.0.0
 python-bidi==0.6.3
 deep-translator==1.11.4
 edge-tts==6.1.12
+requests==2.32.3
