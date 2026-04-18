@@ -1,14 +1,16 @@
 """
-Smart Explorer — Streamlit frontend (v6.0)
+Smart Explorer — Streamlit frontend (v7.0)
 
 Changes in this version:
-  1. 3 models only: custom (default), google_vision, imagga. No auto, no fallback.
-  2. Page 1: compact (no scroll), full-width "أستكشف!" button.
-  3. Page 2: side-by-side mobile cards, full-width select buttons, cleaned copy.
-  4. Page 3: no top-right emoji, prominent picker, gendered instruction ("ضع" / "ضعي").
-  5. Page 4 → Page 6 directly (no intermediate "learn this pic" step).
-  6. Page 6: English label burned over the segmentation image (covers Arabic),
-             Arabic word + spelling + meaning shown, TTS autoplays on load.
+  1. Page 1: kids.png background (fixed, layered), elements centered in 100vh,
+             no scrolling, button text "أستكشف!" pinned full-width at bottom.
+  2. Page 2: clicking a character immediately navigates to camera (no ابدأ التعلّم button).
+             Removed لازم اختيار شخصية / تم اختيار phrases.
+  3. Page 3: 3 models only (custom default). No COCO/yolov8x-seg references.
+             No top-right emoji. Gendered ضع / ضعي instruction.
+  4. Page 4 → Page 6 directly (no intermediate "learn this pic" step).
+  5. Page 6: English label burned over segmentation image, Arabic word + spelling
+             + meaning in cards, TTS autoplays immediately on load.
 """
 
 import streamlit as st
@@ -70,6 +72,7 @@ _DEFAULTS = {
     "tts_voice":          "",
     "selected_model":     DEFAULT_MODEL,
     "audio_autoplayed":   False,        # so we only autoplay once per result
+    "_results_page_init": False,        # cleared on navigation away from results
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -245,6 +248,7 @@ def reset_prediction():
         if k not in keep and k != "current_page":
             st.session_state[k] = v
     st.session_state.pending_capture = None
+    st.session_state["_results_page_init"] = False
 
 
 def get_character_emoji() -> str:
@@ -279,6 +283,8 @@ def show_selected_character_badge():
 def go_to_page(page_name: str):
     with st.spinner("جاري الانتقال..."):
         time.sleep(0.25)
+    if page_name != "results":
+        st.session_state["_results_page_init"] = False
     st.session_state.current_page = page_name
     st.rerun()
 
@@ -317,7 +323,7 @@ html, body,
 .main .block-container {
   max-width: 430px !important; width: 100% !important;
   margin: 0 auto !important;
-  padding: 12px 14px 24px !important;
+  padding: 6px 14px 80px !important;
   animation: fadePage 0.45s ease;
 }
 
@@ -326,7 +332,7 @@ html, body,
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.blob-bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.blob-bg { position: fixed; inset: 0; pointer-events: none; z-index: -1; overflow: hidden; }
 .blob { position: absolute; border-radius: 50%; filter: blur(55px); opacity: 0.30; }
 .blob-1 { width: 240px; height: 240px; background: #c3b8f5; top: -8%;  left:  -4%; }
 .blob-2 { width: 180px; height: 180px; background: #f5c8e8; bottom: 4%; right: -4%; }
@@ -356,17 +362,32 @@ html, body,
 .nq-instruction-text { font-size: 14px; font-weight: 500; color: var(--text-mid); line-height: 1.4; }
 
 /* =================== PAGE 1 (welcome) =================== */
-.welcome-wrap {
-  display: flex; flex-direction: column; align-items: center;
-  text-align: center; min-height: 72vh; justify-content: center;
-  gap: 16px; padding: 8px 4px;
+/* kids.png background — injected dynamically via Python */
+.welcome-bg {
+  position: fixed; inset: 0; z-index: 0;
+  background-size: cover; background-position: center center;
+  background-repeat: no-repeat; background-attachment: fixed;
 }
-.welcome-logo { margin-bottom: 4px; }
-.welcome-title-c { font-size: 34px; font-weight: 900; color: #18264a; line-height: 1.15; }
-.welcome-subtitle-c { font-size: 18px; font-weight: 800; color: #6d7792; }
+.welcome-bg-overlay {
+  position: fixed; inset: 0; z-index: 1;
+  background: rgba(238,234,248,0.55);
+}
+.welcome-wrap {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+  height: calc(100vh - 60px);
+  min-height: 500px;
+  justify-content: center;
+  gap: 14px; padding: 0 4px;
+  overflow: hidden;
+}
+.welcome-logo { margin-bottom: 0px; }
+.welcome-title-c { font-size: 32px; font-weight: 900; color: #18264a; line-height: 1.15; }
+.welcome-subtitle-c { font-size: 17px; font-weight: 800; color: #6d7792; }
 .welcome-desc-c {
-  font-size: 15px; color: #7a849f; line-height: 1.75;
-  background: var(--white); border-radius: 18px; padding: 14px 16px;
+  font-size: 14px; color: #7a849f; line-height: 1.65;
+  background: rgba(255,255,255,0.92); border-radius: 18px; padding: 12px 16px;
   box-shadow: var(--card-shadow);
   max-width: 360px; margin: 0 auto;
 }
@@ -378,6 +399,14 @@ html, body,
   padding: 8px 16px; border-radius: 999px;
   font-weight: 800; color: #667089; font-size: 14px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+/* Keep welcome page button fixed at bottom so it never scrolls off */
+.welcome-btn-wrap {
+  position: fixed; bottom: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 100%; max-width: 430px;
+  padding: 12px 14px 20px; z-index: 10;
+  background: linear-gradient(to top, rgba(238,234,248,0.97) 70%, transparent);
 }
 
 /* =================== PAGE 2 (characters) =================== */
@@ -572,35 +601,53 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 # Page 1 — Welcome (compact, no scroll, full-width أستكشف!)
 # =============================================================================
 def show_welcome_page():
-    st.markdown('<div class="welcome-wrap">', unsafe_allow_html=True)
+    # ── kids.png background (fixed, layered behind everything) ──────────
+    bg_path = "kids.png"
+    if os.path.exists(bg_path):
+        with open(bg_path, "rb") as _f:
+            _bg_b64 = base64.b64encode(_f.read()).decode()
+        _ext = bg_path.rsplit(".", 1)[-1].lower()
+        _mime = "image/png" if _ext == "png" else "image/jpeg"
+        st.markdown(
+            f'<div class="welcome-bg" style="background-image:url(\'data:{_mime};base64,{_bg_b64}\');"></div>'
+            f'<div class="welcome-bg-overlay"></div>',
+            unsafe_allow_html=True,
+        )
 
-    # Logo
+    # ── Centered content wrapper ─────────────────────────────────────────
+    # Build logo as base64 so it sits inside the HTML block (avoids extra spacing)
+    logo_html = ""
     if os.path.exists(logo_path):
-        st.markdown('<div class="welcome-logo">', unsafe_allow_html=True)
-        st.image(logo_path, width=140)
-        st.markdown('</div>', unsafe_allow_html=True)
+        with open(logo_path, "rb") as _lf:
+            _logo_b64 = base64.b64encode(_lf.read()).decode()
+        logo_html = (
+            f'<div class="welcome-logo">'
+            f'<img src="data:image/png;base64,{_logo_b64}" width="130" alt="logo">'
+            f'</div>'
+        )
 
-    st.markdown('<div class="welcome-title-c">ابدأ رحلتك</div>', unsafe_allow_html=True)
-    st.markdown('<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="welcome-desc-c">'
-        'في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
-        '</div>',
+        f'<div class="welcome-wrap">'
+        f'  {logo_html}'
+        f'  <div class="welcome-title-c">ابدأ رحلتك</div>'
+        f'  <div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>'
+        f'  <div class="welcome-desc-c">'
+        f'    في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.'
+        f'  </div>'
+        f'  <div class="welcome-pills">'
+        f'    <span class="pill-sm">🌈 ممتع</span>'
+        f'    <span class="pill-sm">🧠 ذكي</span>'
+        f'    <span class="pill-sm">✨ للأطفال</span>'
+        f'  </div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    st.markdown(
-        '<div class="welcome-pills">'
-        '<span class="pill-sm">🌈 ممتع</span>'
-        '<span class="pill-sm">🧠 ذكي</span>'
-        '<span class="pill-sm">✨ للأطفال</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Full-width CTA
+    # ── Full-width CTA pinned to bottom ──────────────────────────────────
+    st.markdown('<div class="welcome-btn-wrap">', unsafe_allow_html=True)
     if st.button("أستكشف!", key="start_welcome", type="primary", use_container_width=True):
         go_to_page("characters")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
 # Page 2 — Character selection (side-by-side, full-width buttons)
@@ -635,7 +682,7 @@ def show_character_page():
         )
         if st.button("اختيار البنت", key="pick_girl", use_container_width=True):
             st.session_state.selected_character = "بنت"
-            st.rerun()
+            go_to_page("camera")
 
     with col_boy:
         st.markdown('<div class="char-box char-box-boy">', unsafe_allow_html=True)
@@ -651,18 +698,7 @@ def show_character_page():
         )
         if st.button("اختيار الولد", key="pick_boy", use_container_width=True):
             st.session_state.selected_character = "ولد"
-            st.rerun()
-
-    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-    start_disabled = st.session_state.selected_character == ""
-    if st.button(
-        "ابدأ التعلّم",
-        key="start_learning_btn",
-        type="primary",
-        use_container_width=True,
-        disabled=start_disabled,
-    ):
-        go_to_page("camera")
+            go_to_page("camera")
 
 # =============================================================================
 # Model picker (used on page 3)
@@ -878,6 +914,7 @@ def show_camera_page():
                 st.session_state.pending_capture = None
                 st.session_state.pop("cam_input", None)
                 # Direct jump to results — no intermediate page 5.
+                st.session_state["_results_page_init"] = False
                 st.session_state.current_page = "results"
                 st.rerun()
         return
@@ -938,6 +975,11 @@ MODEL_LABELS = {
 
 
 def show_results_page():
+    # Reset autoplay flag so TTS fires each time the results page is shown
+    if not st.session_state.get("_results_page_init"):
+        st.session_state.audio_autoplayed = False
+        st.session_state["_results_page_init"] = True
+
     show_selected_character_badge()
 
     st.markdown(
