@@ -213,7 +213,7 @@ html, body,
 
 /* Phone-first: narrow column, tight padding */
 .main .block-container {
-  max-width: 430px !important;
+  max-width: 640px !important;
   width: 100% !important;
   margin: 0 auto !important;
   padding: 14px 12px 80px !important;
