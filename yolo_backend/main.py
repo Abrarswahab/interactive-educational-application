@@ -1,20 +1,18 @@
 """
-Smart Explorer backend v5.0 — adds Google Cloud Vision + Imagga as model options.
+Smart Explorer backend v5.1 — Imagga as additional cloud model.
 
 Models available:
   - custom        : the trained YOLO-seg kids model (best.pt)
   - fallback      : YOLOv8x-seg pretrained on COCO (80 classes)
-  - google_vision : Google Cloud Vision API (LABEL_DETECTION, thousands of classes)
   - imagga        : Imagga /v2/tags (3,000+ tags)
   - auto          : custom first, falls back to yolov8x-seg if confidence low
 
 Local YOLO models return pixel-level segmentation masks.
-Google Vision and Imagga are classification APIs — they only return labels +
-confidences. For those we show the original image with a clean label banner
-burned in the top-right corner instead of mask overlays.
+Imagga is a classification API — it only returns labels + confidences.
+For Imagga we show the original image with a clean label banner burned in the
+top-right corner instead of mask overlays.
 
 Credentials (set as environment variables before running):
-  GOOGLE_VISION_API_KEY     — Google Cloud Vision API key (create in GCP console)
   IMAGGA_API_KEY            — Imagga API key
   IMAGGA_API_SECRET         — Imagga API secret
 
@@ -27,7 +25,6 @@ import base64
 import io
 import logging
 import os
-import tempfile
 from functools import lru_cache
 from typing import Optional
 
@@ -56,17 +53,10 @@ FALLBACK_CONF_THRESHOLD = 0.45
 EDGE_TTS_VOICE          = "ar-SA-ZariyahNeural"
 
 # External API credentials
-GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY", "").strip()
 IMAGGA_API_KEY        = os.getenv("IMAGGA_API_KEY", "").strip()
 IMAGGA_API_SECRET     = os.getenv("IMAGGA_API_SECRET", "").strip()
 
-GOOGLE_VISION_ENABLED = bool(GOOGLE_VISION_API_KEY)
 IMAGGA_ENABLED        = bool(IMAGGA_API_KEY and IMAGGA_API_SECRET)
-
-if GOOGLE_VISION_ENABLED:
-    log.info("Google Cloud Vision: API key configured")
-else:
-    log.info("Google Cloud Vision: no API key (set GOOGLE_VISION_API_KEY to enable)")
 
 if IMAGGA_ENABLED:
     log.info("Imagga: credentials configured")
@@ -116,29 +106,149 @@ def translate_to_arabic(en_name: str) -> str:
 
 
 # ----------------------------------------------------------------------
-# TTS — edge-tts, called directly from async endpoint
+# TTS — edge-tts (primary) with gTTS fallback over plain HTTPS
 # ----------------------------------------------------------------------
-async def edge_tts_bytes(text: str, voice: str = EDGE_TTS_VOICE) -> Optional[bytes]:
+#
+# Why a fallback?
+#   edge-tts streams audio over a WebSocket to Microsoft's servers.
+#   Railway (and many cloud hosts) frequently block or throttle those
+#   WebSocket connections, which surfaces as `NoAudioReceived` errors and
+#   the dreaded "لم يتوفر صوت لهذه الكلمة" message on the client.
+#   gTTS uses plain HTTPS to translate.google.com and works reliably on
+#   any host that can make outbound HTTPS calls.
+
+# Arabic single-letter → spoken letter name.
+# TTS engines pronounce isolated letters like "ب" poorly or silently
+# because they treat them as fragments, not words. Feeding the full
+# letter name ("باء", "ميم", …) produces the pronunciation kids expect.
+ARABIC_LETTER_NAMES = {
+    "ا": "ألف",  "أ": "ألف",  "إ": "ألف",  "آ": "ألف",  "ء": "همزة",
+    "ب": "باء",  "ت": "تاء",  "ث": "ثاء",
+    "ج": "جيم",  "ح": "حاء",  "خ": "خاء",
+    "د": "دال",  "ذ": "ذال",
+    "ر": "راء",  "ز": "زاي",
+    "س": "سين",  "ش": "شين",
+    "ص": "صاد",  "ض": "ضاد",
+    "ط": "طاء",  "ظ": "ظاء",
+    "ع": "عين",  "غ": "غين",
+    "ف": "فاء",  "ق": "قاف",
+    "ك": "كاف",  "ل": "لام",
+    "م": "ميم",  "ن": "نون",
+    "ه": "هاء",  "ة": "تاء مربوطة",
+    "و": "واو",  "ؤ": "واو",
+    "ي": "ياء",  "ى": "ألف مقصورة",  "ئ": "ياء",
+}
+
+
+def _spoken_form(text: str) -> str:
+    """If the input is a single Arabic letter, expand it to its letter name so TTS
+    pronounces it the way a teacher would read it aloud."""
+    stripped = text.strip()
+    if len(stripped) == 1 and stripped in ARABIC_LETTER_NAMES:
+        return ARABIC_LETTER_NAMES[stripped]
+    return text
+
+
+async def _edge_tts_bytes(
+    text: str,
+    voice: str = EDGE_TTS_VOICE,
+    *,
+    retries: int = 2,
+) -> Optional[bytes]:
+    """
+    Stream TTS audio from edge-tts directly into memory. No tempfiles.
+    Retries up to `retries` times on transient failures.
+    Returns None if every attempt fails — caller should fall back to gTTS.
+    """
     if not text or not text.strip():
         return None
-    tmp_path = None
+
+    last_err: Optional[BaseException] = None
+    for attempt in range(retries + 1):
+        try:
+            communicate = edge_tts.Communicate(text, voice)
+            chunks = bytearray()
+            async for chunk in communicate.stream():
+                if chunk.get("type") == "audio" and chunk.get("data"):
+                    chunks.extend(chunk["data"])
+            if chunks:
+                return bytes(chunks)
+            last_err = RuntimeError("edge-tts returned no audio data")
+        except Exception as e:  # noqa: BLE001 — edge-tts raises varied errors
+            last_err = e
+            log.warning(
+                f"edge-tts attempt {attempt + 1}/{retries + 1} failed for '{text}': "
+                f"{type(e).__name__}: {e}"
+            )
+        if attempt < retries:
+            await asyncio.sleep(0.4 * (attempt + 1))
+
+    log.warning(f"edge-tts giving up on '{text}': {last_err}")
+    return None
+
+
+# Google Translate's unofficial TTS endpoint — also used by the `gTTS`
+# package. Plain HTTPS GET, returns an MP3 body. Works on any host.
+_GTTS_URL = "https://translate.google.com/translate_tts"
+_GTTS_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    ),
+    "Referer": "https://translate.google.com/",
+}
+
+
+def _gtts_bytes_sync(text: str, lang: str = "ar") -> Optional[bytes]:
+    """Blocking HTTP fetch from translate.google.com. Called via to_thread."""
+    # The endpoint has a ~200-char per-request limit. Short kids' words and
+    # letter names are well under that, so one request is always enough here.
     try:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp_path = tmp.name
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(tmp_path)
-        with open(tmp_path, "rb") as f:
-            audio = f.read()
-        return audio if audio else None
-    except Exception as e:
-        log.warning(f"edge-tts failed for '{text}': {type(e).__name__}: {e}")
+        params = {
+            "ie": "UTF-8",
+            "q": text,
+            "tl": lang,
+            "client": "tw-ob",
+            "ttsspeed": "1.0",
+        }
+        r = requests.get(_GTTS_URL, params=params, headers=_GTTS_HEADERS, timeout=15)
+        if r.status_code == 200 and r.content:
+            return r.content
+        log.warning(f"gTTS HTTP {r.status_code} for '{text}'")
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"gTTS failed for '{text}': {type(e).__name__}: {e}")
+    return None
+
+
+async def _gtts_bytes(text: str, lang: str = "ar") -> Optional[bytes]:
+    """Async wrapper so we don't block the event loop on the HTTP call."""
+    return await asyncio.to_thread(_gtts_bytes_sync, text, lang)
+
+
+async def tts_bytes(text: str, voice: str = EDGE_TTS_VOICE) -> Optional[bytes]:
+    """
+    Unified TTS entrypoint: try edge-tts first, fall back to gTTS over HTTPS.
+    Expands single Arabic letters to their letter names for correct pronunciation.
+    Returns MP3 bytes, or None only if BOTH providers fail.
+    """
+    if not text or not text.strip():
         return None
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+
+    spoken = _spoken_form(text)
+
+    # Primary: edge-tts (neural voice, better quality)
+    audio = await _edge_tts_bytes(spoken, voice=voice)
+    if audio:
+        return audio
+
+    # Fallback: gTTS (plain HTTPS, works when WebSocket is blocked)
+    log.info(f"Falling back to gTTS for '{text}'")
+    return await _gtts_bytes(spoken, lang="ar")
+
+
+# Kept as a thin alias so the rest of the code doesn't have to change.
+edge_tts_bytes = tts_bytes
 
 
 def bytes_to_data_uri(mp3_bytes: Optional[bytes]) -> Optional[str]:
@@ -167,7 +277,7 @@ def annotate_yolo_image(results, ar_label: str, coverage_pct: float) -> Image.Im
 
 
 def annotate_classification_image(img: Image.Image, ar_label: str, confidence: float) -> Image.Image:
-    """Google Vision / Imagga: no masks — just the original image with a clean label."""
+    """Imagga: no masks — just the original image with a clean label."""
     annotated  = img.copy()
     label_text = shape_arabic(f"{ar_label} ({confidence*100:.1f}%)")
     _burn_label(annotated, label_text)
@@ -213,41 +323,6 @@ def run_yolo(model_obj, img: Image.Image):
     return results, label_en, top_conf, coverage_pct
 
 
-def run_google_vision(img: Image.Image):
-    """Returns (label_en, confidence) or None. Raises HTTPException on API / connection errors."""
-    if not GOOGLE_VISION_ENABLED:
-        raise HTTPException(status_code=503, detail="Google Vision API غير مفعّل على الخادم.")
-
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG")
-    b64_string = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    payload = {
-        "requests": [{
-            "image": {"content": b64_string},
-            "features": [{"type": "LABEL_DETECTION", "maxResults": 5}],
-        }]
-    }
-    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
-
-    try:
-        r = requests.post(url, json=payload, timeout=20)
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=f"Google Vision Error: {r.text}")
-
-        data = r.json()
-        responses = data.get("responses", [])
-        if not responses or "labelAnnotations" not in responses[0]:
-            return None
-
-        top = responses[0]["labelAnnotations"][0]
-        return top.get("description", ""), float(top.get("score", 0.0))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"خطأ في الاتصال بـ Google Vision: {str(e)}")
-
-
 def run_imagga(img_bytes: bytes):
     """Returns (label_en, confidence_0_to_1) or None."""
     if not IMAGGA_ENABLED:
@@ -287,7 +362,7 @@ def run_imagga(img_bytes: bytes):
 # ----------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------
-app = FastAPI(title="Smart Explorer API", version="5.0.0")
+app = FastAPI(title="Smart Explorer API", version="5.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -319,12 +394,11 @@ def root():
     return {
         "status": "ok",
         "service": "Smart Explorer API",
-        "version": "5.0.0",
+        "version": "5.1.0",
         "models": {
             "custom":        {"available": True, "classes": len(custom_model.names)},
             "fallback":      {"available": fallback_model is not None,
                               "classes": len(fallback_model.names) if fallback_model else 0},
-            "google_vision": {"available": GOOGLE_VISION_ENABLED, "classes": "thousands"},
             "imagga":        {"available": IMAGGA_ENABLED, "classes": "3000+"},
         },
         "tts_voice": EDGE_TTS_VOICE,
@@ -337,9 +411,8 @@ def health():
         "status": "healthy",
         "custom_model_loaded":   custom_model is not None,
         "fallback_model_loaded": fallback_model is not None,
-        "google_vision_enabled": GOOGLE_VISION_ENABLED,
         "imagga_enabled":        IMAGGA_ENABLED,
-        "tts_engine":            "edge-tts",
+        "tts_engine":            "edge-tts + gTTS fallback",
         "tts_voice":             EDGE_TTS_VOICE,
     }
 
@@ -380,16 +453,6 @@ def list_models():
                 "description_ar": "نموذج عام يغطي 80 فئة من الأشياء اليومية.",
             },
             {
-                "id": "google_vision",
-                "name_ar": "Google Vision",
-                "name_en": "Google Cloud Vision",
-                "emoji": "🌐",
-                "num_classes_label": "آلاف",
-                "kind": "cloud",
-                "available": GOOGLE_VISION_ENABLED,
-                "description_ar": "سحابي — يغطي آلاف الفئات ولكن بدون تحديد المنطقة.",
-            },
-            {
                 "id": "imagga",
                 "name_ar": "Imagga",
                 "name_en": "Imagga",
@@ -406,7 +469,7 @@ def list_models():
 @app.post("/segment", response_model=SegmentResponse)
 async def segment(
     file: UploadFile = File(...),
-    model: str = Query("auto", description="auto | custom | fallback | google_vision | imagga"),
+    model: str = Query("auto", description="auto | custom | fallback | imagga"),
 ):
     # ---- Read + validate image -------------------------------------------
     try:
@@ -416,7 +479,7 @@ async def segment(
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
     model = (model or "auto").lower().strip()
-    if model not in ("auto", "custom", "fallback", "google_vision", "imagga"):
+    if model not in ("auto", "custom", "fallback", "imagga"):
         model = "auto"
 
     # Tracked results across branches
@@ -468,15 +531,6 @@ async def segment(
         model_used = chosen_tag
 
     # ---- Cloud API branches (classification only — no masks) -------------
-    elif model == "google_vision":
-        r = run_google_vision(img)
-        if r is None:
-            raise HTTPException(status_code=422,
-                                detail="Google Vision لم تتعرف على أي شيء في الصورة.")
-        label_en, top_conf = r
-        coverage_pct       = 0.0
-        model_used         = "google_vision"
-
     elif model == "imagga":
         r = run_imagga(raw)
         if r is None:
@@ -497,11 +551,20 @@ async def segment(
         annotated_img = annotate_classification_image(img, label_ar, top_conf)
     annotated_b64 = image_to_b64(annotated_img)
 
-    # ---- Generate all audio in parallel ---------------------------------
-    word_task    = asyncio.create_task(edge_tts_bytes(label_ar))
-    letter_tasks = [asyncio.create_task(edge_tts_bytes(ch)) for ch in letters]
-    word_bytes   = await word_task
-    letter_bytes = await asyncio.gather(*letter_tasks) if letter_tasks else []
+    # ---- Generate all audio (word in parallel, letters in small batches) -
+    # Firing 10+ concurrent edge-tts requests often trips rate limits or the
+    # "NoAudioReceived" failure mode. We batch letters 3-at-a-time while the
+    # word TTS runs in parallel — fast enough that the loader doesn't drag.
+    word_task = asyncio.create_task(tts_bytes(label_ar))
+
+    LETTER_BATCH_SIZE = 3
+    letter_bytes: list = []
+    for i in range(0, len(letters), LETTER_BATCH_SIZE):
+        batch = letters[i:i + LETTER_BATCH_SIZE]
+        batch_results = await asyncio.gather(*(tts_bytes(ch) for ch in batch))
+        letter_bytes.extend(batch_results)
+
+    word_bytes = await word_task
 
     got_letters = sum(1 for b in letter_bytes if b)
     log.info(f"TTS: word={'✓' if word_bytes else '✗'}, letters={got_letters}/{len(letters)}")
