@@ -643,109 +643,91 @@ def show_camera_page():
     show_selected_character_badge()
 
     # ===============================================================
-    # The overlay strategy:
-    # Different Streamlit versions nest st.camera_input differently.
-    # Some put the <video> directly inside [data-testid="stCameraInput"],
-    # others wrap it in one or two intermediate divs.
-    # Rather than targeting a fragile specific child, we make the ENTIRE
-    # camera block `position: relative` and attach the guide square + corner
-    # marks to the whole [data-testid="stCameraInput"] itself.
-    # That always works because the selector is stable.
-    # The shutter button is anchored at the bottom, so the overlay above
-    # stays centered over the video area.
+    # DYNAMIC CAMERA LAYOUT - fills the screen, switch button visible
     # ===============================================================
     st.markdown("""
     <style>
-    /* Outer dark frame — this is the overlay anchor now */
+    /* Camera container - no extra padding, let it grow */
     [data-testid="stCameraInput"] {
+        position: relative !important;
         border-radius: 24px !important;
         background: #1a1a2e !important;
         box-shadow: 0 8px 28px rgba(91,71,180,0.30) !important;
-        padding: 12px 12px 90px !important;  /* reserve bottom space for the shutter */
-        max-width: 100% !important;
-        margin: 0 auto 12px !important;
-        position: relative !important;
-        overflow: hidden !important;
+        margin: 0 auto 12px auto !important;
+        padding: 0 !important;            /* remove all padding */
+        width: 100% !important;
+        overflow: visible !important;     /* don't clip the switch button */
     }
 
-    /* Round video + captured still */
+    /* The video element - fill the container, maintain aspect ratio */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
-        border-radius: 16px !important;
         width: 100% !important;
+        height: auto !important;
+        border-radius: 16px !important;
         display: block !important;
     }
 
-    /* ==== GLOWING GUIDE SQUARE — attached to the whole camera block ==== */
-    /* Positioned to sit over the video area (above the reserved shutter space) */
+    /* Make the container at least 50vh tall, but let video determine actual height */
+    [data-testid="stCameraInput"] {
+        min-height: 50vh !important;
+    }
+
+    /* ===== GLOWING GUIDE SQUARE - centered over video ===== */
     [data-testid="stCameraInput"]::after {
         content: "ضع الشيء هنا";
         position: absolute;
-        top: 12px;
+        top: 50%;
         left: 50%;
-        transform: translateX(-50%);
-        /* vertical: cover the video region only (container height minus shutter area) */
-        height: calc(100% - 110px);
-        aspect-ratio: 1;
-        /* fallback — cap width to 62% of video area */
-        max-width: 62%;
-        max-height: 62%;
-        margin-top: calc((100% - 110px - 62%) / 2);
-
-        border-radius: 20px;
-        border: 2.5px solid rgba(200,185,255,0.9);
+        transform: translate(-50%, -50%);
+        width: 65%;
+        aspect-ratio: 1 / 1;
+        border-radius: 24px;
+        border: 3px solid rgba(255, 215, 150, 0.9);
+        background: rgba(0, 0, 0, 0.08);
+        box-shadow: 0 0 0 2px rgba(255, 200, 100, 0.4), 0 0 0 6px rgba(0,0,0,0.2);
         pointer-events: none;
-        z-index: 6;
-        animation: nq-glow-pulse 2.2s ease-in-out infinite;
-
+        z-index: 15;
         display: flex;
         align-items: flex-end;
         justify-content: center;
-        padding-bottom: 6px;
+        padding-bottom: 12px;
         font-family: 'Tajawal', sans-serif;
-        font-size: 12px;
-        font-weight: 600;
-        color: rgba(210,200,255,0.9);
-    }
-    @keyframes nq-glow-pulse {
-        0%,100% {
-            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
-                        0 0 18px 4px rgba(160,140,255,0.35),
-                        inset 0 0 18px 2px rgba(160,140,255,0.10);
-            border-color: rgba(200,185,255,0.85);
-        }
-        50% {
-            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
-                        0 0 32px 10px rgba(160,140,255,0.55),
-                        inset 0 0 24px 6px rgba(160,140,255,0.20);
-            border-color: rgba(220,210,255,1);
-        }
+        font-size: 14px;
+        font-weight: 700;
+        color: rgba(255, 230, 170, 0.95);
+        text-shadow: 0 1px 3px black;
+        letter-spacing: 0.5px;
     }
 
-    /* ==== FOUR CORNER MARKS — on the video area ==== */
+    /* ===== FOUR CORNER MARKS (aligned to the square) ===== */
     [data-testid="stCameraInput"]::before {
         content: "";
         position: absolute;
-        top: 22px;
-        left: 22px;
-        right: 22px;
-        /* stop above the shutter area */
-        bottom: 100px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 65%;
+        aspect-ratio: 1 / 1;
         pointer-events: none;
-        z-index: 5;
+        z-index: 14;
         background:
-            linear-gradient(to right,  rgba(255,255,255,0.55) 20px, transparent 20px) top left    / 20px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.55) 20px, transparent 20px) top left    / 2px 20px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.55) 20px, transparent 20px) top right   / 20px 2px no-repeat,
-            linear-gradient(to bottom, rgba(255,255,255,0.55) 20px, transparent 20px) top right   / 2px 20px no-repeat,
-            linear-gradient(to right,  rgba(255,255,255,0.55) 20px, transparent 20px) bottom left / 20px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.55) 20px, transparent 20px) bottom left / 2px 20px no-repeat,
-            linear-gradient(to left,   rgba(255,255,255,0.55) 20px, transparent 20px) bottom right/ 20px 2px no-repeat,
-            linear-gradient(to top,    rgba(255,255,255,0.55) 20px, transparent 20px) bottom right/ 2px 20px no-repeat;
+            /* top-left */
+            linear-gradient(135deg, rgba(255,215,150,1) 12px, transparent 12px) top left / 24px 24px no-repeat,
+            /* top-right */
+            linear-gradient(225deg, rgba(255,215,150,1) 12px, transparent 12px) top right / 24px 24px no-repeat,
+            /* bottom-left */
+            linear-gradient(45deg, rgba(255,215,150,1) 12px, transparent 12px) bottom left / 24px 24px no-repeat,
+            /* bottom-right */
+            linear-gradient(315deg, rgba(255,215,150,1) 12px, transparent 12px) bottom right / 24px 24px no-repeat;
     }
 
-    /* Shutter button — absolute-positioned at the bottom of the dark frame */
+    /* ===== SHUTTER BUTTON - placed below the video, not overlaying it ===== */
+    /* Streamlit's camera_input includes a shutter button inside. We'll restyle it */
     [data-testid="stCameraInput"] button {
+        position: relative !important;
+        margin-top: 16px !important;       /* space below video */
+        margin-bottom: 8px !important;
         width: 72px !important;
         height: 72px !important;
         border-radius: 50% !important;
@@ -754,24 +736,16 @@ def show_camera_page():
         color: transparent !important;
         font-size: 0 !important;
         padding: 0 !important;
-
-        /* Pin it to the bottom-center of the container */
-        position: absolute !important;
-        bottom: 12px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        margin: 0 !important;
-
         display: block !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
         box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
         transition: transform 0.12s ease !important;
-        z-index: 10 !important;
-    }
-    [data-testid="stCameraInput"] button:hover {
-        transform: translateX(-50%) !important;  /* keep it centered on hover */
+        z-index: 20 !important;
+        cursor: pointer;
     }
     [data-testid="stCameraInput"] button:active {
-        transform: translateX(-50%) scale(0.92) !important;
+        transform: scale(0.92) !important;
     }
     [data-testid="stCameraInput"] button::before {
         content: "";
@@ -783,7 +757,27 @@ def show_camera_page():
         background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
     }
 
-    /* Loader card */
+    /* ===== SWITCH CAMERA BUTTON - make it visible and tappable ===== */
+    /* Streamlit's switch button is inside a div with class "stCameraInputSwitch" */
+    /* We target the parent of the video to ensure it's not hidden */
+    .stCameraInputSwitch {
+        display: flex !important;
+        justify-content: center !important;
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+    }
+    .stCameraInputSwitch button {
+        background: rgba(255,255,255,0.9) !important;
+        border-radius: 40px !important;
+        padding: 6px 16px !important;
+        font-size: 14px !important;
+        font-weight: bold !important;
+        color: #5a4fb0 !important;
+        border: none !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+    }
+
+    /* Loader card (unchanged) */
     .nq-loader-card {
         background: #ffffff; border-radius: 24px; padding: 28px 20px;
         text-align: center; box-shadow: 0 10px 28px rgba(91,71,180,0.15);
