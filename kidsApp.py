@@ -31,7 +31,6 @@ st.set_page_config(
 # =============================================================================
 # Assets
 # =============================================================================
-logo_path = "logo.png"
 girl_path = "girl.png"
 boy_path  = "boy.png"
 # Optional: a font for the English label we burn client-side. Falls back to PIL default.
@@ -260,23 +259,6 @@ def gendered_place_hint() -> str:
     return "ضع الشيء داخل المربع المضيء ثم اضغط على الزر البنفسجي"
 
 
-def show_selected_character_badge():
-    if st.session_state.selected_character == "بنت" and os.path.exists(girl_path):
-        avatar_path = girl_path
-    elif st.session_state.selected_character == "ولد" and os.path.exists(boy_path):
-        avatar_path = boy_path
-    else:
-        return
-    with open(avatar_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode()
-    st.markdown(
-        f'<div class="selected-avatar-badge">'
-        f'<img src="data:image/png;base64,{encoded}" alt="character">'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-
 def go_to_page(page_name: str):
     with st.spinner("جاري الانتقال..."):
         time.sleep(0.25)
@@ -381,10 +363,19 @@ html, body,
   padding-top: 5px;
   gap: 8px;
 }
-.welcome-logo-container img {
-  max-width: 180px;
-  height: auto;
-  margin-bottom: 5px;
+.welcome-brand {
+  font-size: 42px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #7b6fd4 0%, #e86fa0 60%, #5a4fb0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 18px rgba(123,111,212,0.18);
+  padding: 4px 8px;
+  line-height: 1.1;
+  margin-bottom: 4px;
 }
 .welcome-title-c { font-size: 32px; font-weight: 900; color: #18264a; line-height: 1.15; }
 .welcome-subtitle-c { font-size: 17px; font-weight: 800; color: #6d7792; }
@@ -551,18 +542,6 @@ div.stButton > button {
 }
 div.stButton > button:hover { transform: translateY(-2px); }
 
-/* =================== Avatar badge (fixed) =================== */
-.selected-avatar-badge {
-  position: fixed; top: 12px; left: 12px;
-  width: 54px; height: 54px; border-radius: 50%;
-  background: #ffffff; box-shadow: 0 6px 16px rgba(91,71,180,0.20);
-  padding: 3px; z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
-}
-.selected-avatar-badge img {
-  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
-}
-
 /* =================== Loader =================== */
 .nq-loader-card {
   background: #ffffff; border-radius: 24px; padding: 28px 20px;
@@ -617,28 +596,22 @@ def show_welcome_page():
             unsafe_allow_html=True,
         )
 
-    logo_html = ""
-    if os.path.exists(logo_path):
-        with open(logo_path, "rb") as f:
-            logo_b64 = base64.b64encode(f.read()).decode()
-        logo_html = f'<div class="welcome-logo-container"><img src="data:image/png;base64,{logo_b64}"></div>'
-
     st.markdown(
-        f"""
-        <div class="welcome-wrap">
-            {logo_html}
-            <div class="welcome-title-c">ابدأ رحلتك</div>
-            <div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>
-            <div class="welcome-desc-c">
-                في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.
-            </div>
-            <div class="welcome-pills">
-                <span class="pill-sm">🌈 ممتع</span>
-                <span class="pill-sm">🧠 ذكي</span>
-                <span class="pill-sm">✨ للأطفال</span>
-            </div>
-        </div>
-        """,
+        """
+<div class="welcome-wrap">
+<div class="welcome-brand">المستكشف الذكي</div>
+<div class="welcome-title-c">ابدأ رحلتك</div>
+<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>
+<div class="welcome-desc-c">
+في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.
+</div>
+<div class="welcome-pills">
+<span class="pill-sm">🌈 ممتع</span>
+<span class="pill-sm">🧠 ذكي</span>
+<span class="pill-sm">✨ للأطفال</span>
+</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
 
@@ -840,7 +813,6 @@ CAMERA_CSS = """
 
 
 def show_camera_page():
-    show_selected_character_badge()
     st.markdown(CAMERA_CSS, unsafe_allow_html=True)
 
     # Header — no emoji on the right (per spec: remove top-right emoji)
@@ -974,8 +946,6 @@ def show_results_page():
     if not st.session_state.get("_results_page_init"):
         st.session_state.audio_autoplayed = False
         st.session_state["_results_page_init"] = True
-
-    show_selected_character_badge()
 
     st.markdown(
         f'<div class="nq-header">'
