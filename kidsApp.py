@@ -61,8 +61,8 @@ def _decode_data_uri(data_uri: str) -> bytes:
         return b""
 
 
-def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.65) -> bytes:
-    """Crop to a centered square matching the on-screen guide (65% of min dimension)."""
+def _center_square_crop(image_bytes: bytes, guide_ratio: float = 0.62) -> bytes:
+    """Crop to a centered square matching the on-screen guide (62% of min dimension)."""
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         w, h = img.size
@@ -107,14 +107,11 @@ def segment_image(image_source) -> dict:
         else:
             return {"error": "صيغة الصورة غير مدعومة."}
 
-        # Apply the crop BEFORE sending to API
-        cropped_data = _center_square_crop(data)
-        files = {"file": (name, cropped_data, mime)}
+        files = {"file": (name, data, mime)}
         response = requests.post(f"{API_URL}/segment", files=files, timeout=120)
 
         if response.status_code == 200:
-            # Save cropped image for results page.
-            return {"api_result": response.json(), "cropped_image": cropped_data}
+            return response.json()
         try:
             detail = response.json().get("detail", response.text)
         except Exception:
@@ -129,22 +126,19 @@ def segment_image(image_source) -> dict:
 
 
 def apply_segmentation_result(source_bytes: bytes, source_name: str, result: dict) -> None:
-    # Use the cropped image from segment_image
-    st.session_state.captured_image = result["cropped_image"]
+    st.session_state.captured_image = source_bytes
     st.session_state.captured_name = source_name
 
-    # Process API response
-    api_data = result["api_result"]
-    st.session_state.annotated_image = _decode_data_uri(api_data.get("annotated_image", ""))
-    st.session_state.predicted_label = api_data.get("label_ar", "غير معروف")
-    st.session_state.predicted_label_en = api_data.get("label_en", "")
-    conf_value = api_data.get("confidence", 0) or 0
+    st.session_state.annotated_image = _decode_data_uri(result.get("annotated_image", ""))
+    st.session_state.predicted_label = result.get("label_ar", "غير معروف")
+    st.session_state.predicted_label_en = result.get("label_en", "")
+    conf_value = result.get("confidence", 0) or 0
     st.session_state.predicted_conf = f"{int(conf_value * 100)}٪"
-    st.session_state.predicted_coverage = api_data.get("coverage_percent", 0.0)
-    st.session_state.predicted_spelling = api_data.get("spelling", [])
-    st.session_state.audio_word = api_data.get("audio_word")
-    st.session_state.audio_letters = api_data.get("audio_letters", [])
-    st.session_state.audio_combined = api_data.get("audio_combined")
+    st.session_state.predicted_coverage = result.get("coverage_percent", 0.0)
+    st.session_state.predicted_spelling = result.get("spelling", [])
+    st.session_state.audio_word = result.get("audio_word")
+    st.session_state.audio_letters = result.get("audio_letters", [])
+    st.session_state.audio_combined = result.get("audio_combined")
 
 
 def reset_prediction():
@@ -652,110 +646,68 @@ def show_character_page():
 def show_camera_page():
     show_selected_character_badge()
 
-    # ===============================================================
-    # IMPROVED CAMERA LAYOUT – matching theme + better button placement
-    # ===============================================================
+    # ---------- Camera-page CSS ----------
     st.markdown("""
     <style>
-    /* Camera container – full width, no extra padding */
+    /* Outer camera container — dark rounded frame */
     [data-testid="stCameraInput"] {
-        position: relative !important;
-        border-radius: 28px !important;
-        background: #1a1a2e !important;
-        box-shadow: 0 12px 32px rgba(91,71,180,0.35) !important;
-        margin: 0 auto 16px auto !important;
-        padding: 0 !important;
-        width: 100% !important;
-        overflow: visible !important;
+        border-radius: 24px;
+        background: #1a1a2e;
+        box-shadow: 0 8px 28px rgba(91,71,180,0.30);
+        padding: 10px 10px 4px;
+        max-width: 460px;
+        margin: 0 auto 12px;
+        position: relative;
     }
-
-    /* Video element – responsive, rounded */
+    /* Round the live video and the captured still */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
+        border-radius: 16px !important;
         width: 100% !important;
-        height: auto !important;
-        border-radius: 20px !important;
         display: block !important;
     }
 
-    /* Make the container at least 50vh tall, but let video determine actual height */
-    [data-testid="stCameraInput"] {
-        min-height: 50vh !important;
-    }
-
-    /* ===== GUIDE SQUARE – purple/pink theme ===== */
+    /* Four corner marks, anchored to the OUTER container (reliable) */
+    [data-testid="stCameraInput"]::before,
     [data-testid="stCameraInput"]::after {
-        content: "ضع الشيء هنا";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 65%;
-        aspect-ratio: 1 / 1;
-        border-radius: 28px;
-        border: 3px solid rgba(171, 157, 232, 0.95);
-        background: rgba(123, 111, 212, 0.08);
-        box-shadow: 0 0 0 2px rgba(171, 157, 232, 0.4), 0 0 0 6px rgba(0,0,0,0.15), 0 0 20px rgba(123,111,212,0.4);
-        pointer-events: none;
-        z-index: 15;
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        padding-bottom: 14px;
-        font-family: 'Tajawal', sans-serif;
-        font-size: 14px;
-        font-weight: 700;
-        color: rgba(230, 220, 255, 0.95);
-        text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-        letter-spacing: 0.3px;
-    }
-
-    /* ===== CORNER MARKS – matching purple ===== */
-    [data-testid="stCameraInput"]::before {
         content: "";
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 65%;
-        aspect-ratio: 1 / 1;
+        width: 22px;
+        height: 22px;
+        border: 2px solid rgba(255,255,255,0.55);
         pointer-events: none;
-        z-index: 14;
-        background:
-            linear-gradient(135deg, rgba(171,157,232,1) 14px, transparent 14px) top left / 28px 28px no-repeat,
-            linear-gradient(225deg, rgba(171,157,232,1) 14px, transparent 14px) top right / 28px 28px no-repeat,
-            linear-gradient(45deg, rgba(171,157,232,1) 14px, transparent 14px) bottom left / 28px 28px no-repeat,
-            linear-gradient(315deg, rgba(171,157,232,1) 14px, transparent 14px) bottom right / 28px 28px no-repeat;
+        z-index: 15;
+    }
+    [data-testid="stCameraInput"]::before {
+        top: 18px;
+        left: 18px;
+        border-right: none;
+        border-bottom: none;
+        border-top-left-radius: 4px;
+    }
+    [data-testid="stCameraInput"]::after {
+        top: 18px;
+        right: 18px;
+        border-left: none;
+        border-bottom: none;
+        border-top-right-radius: 4px;
     }
 
-    /* ===== BUTTONS CONTAINER – flexible row ===== */
-    /* Group both shutter and switch buttons into a single row */
-    [data-testid="stCameraInput"] {
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    /* The video area should take natural space */
-    [data-testid="stCameraInput"] video {
-        order: 1;
-    }
-    /* Shutter button */
+    /* Restyle Streamlit's native capture button into the reference's shutter */
     [data-testid="stCameraInput"] button {
-        position: relative !important;
-        order: 2;
-        margin: 16px auto 8px auto !important;
-        width: 70px !important;
-        height: 70px !important;
+        width: 72px !important;
+        height: 72px !important;
         border-radius: 50% !important;
-        border: 3px solid #c3b8f5 !important;
+        border: 4px solid #a89de8 !important;
         background: #ffffff !important;
         color: transparent !important;
         font-size: 0 !important;
         padding: 0 !important;
-        display: inline-block !important;
-        box-shadow: 0 6px 18px rgba(123,111,212,0.4) !important;
+        margin: 14px auto 6px !important;
+        display: block !important;
+        box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
         transition: transform 0.12s ease !important;
-        cursor: pointer;
-        flex-shrink: 0;
+        position: relative !important;
     }
     [data-testid="stCameraInput"] button:active {
         transform: scale(0.92) !important;
@@ -763,62 +715,63 @@ def show_camera_page():
     [data-testid="stCameraInput"] button::before {
         content: "";
         position: absolute;
-        top: 50%; left: 50%;
+        top: 50%;
+        left: 50%;
         transform: translate(-50%, -50%);
-        width: 50px; height: 50px;
+        width: 52px;
+        height: 52px;
         border-radius: 50%;
         background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
     }
-
-    /* Switch camera button container */
-    .stCameraInputSwitch {
-        order: 3;
-        display: flex !important;
-        justify-content: center !important;
-        margin: 0 auto 16px auto !important;
-    }
-    .stCameraInputSwitch button {
-        background: rgba(255,255,255,0.95) !important;
-        border-radius: 40px !important;
-        padding: 8px 20px !important;
-        font-size: 14px !important;
-        font-weight: 800 !important;
-        color: #5a4fb0 !important;
-        border: none !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
-        font-family: 'Tajawal', sans-serif !important;
-        transition: 0.1s ease !important;
-    }
-    .stCameraInputSwitch button:active {
-        transform: scale(0.96);
-    }
-
-    /* Loader card (unchanged) */
     .nq-loader-card {
-        background: #ffffff; border-radius: 24px; padding: 28px 20px;
-        text-align: center; box-shadow: 0 10px 28px rgba(91,71,180,0.15);
-        margin: 20px auto; max-width: 100%;
+        background: #ffffff;
+        border-radius: 28px;
+        padding: 36px 24px;
+        text-align: center;
+        box-shadow: 0 10px 32px rgba(91,71,180,0.15);
+        margin: 24px auto;
+        max-width: 520px;
     }
     .nq-loader-emoji {
-        font-size: 60px;
+        font-size: 72px;
         animation: nq-loader-bounce 1.4s ease-in-out infinite;
         display: inline-block;
     }
     @keyframes nq-loader-bounce {
         0%,100% { transform: translateY(0) rotate(-6deg); }
-        50%     { transform: translateY(-10px) rotate(6deg); }
+        50%      { transform: translateY(-12px) rotate(6deg); }
     }
-    .nq-loader-text { font-size: 20px; font-weight: 800; color: #4a3ea0; margin-top: 12px; }
+    .nq-loader-text {
+        font-size: 24px;
+        font-weight: 800;
+        color: #4a3ea0;
+        margin-top: 16px;
+    }
     .nq-loader-bar {
-        margin: 16px auto 0; height: 9px; width: 85%; max-width: 320px;
-        background: #e9e5fa; border-radius: 999px; overflow: hidden; position: relative;
+        margin: 20px auto 0;
+        height: 10px;
+        width: 85%;
+        max-width: 360px;
+        background: #e9e5fa;
+        border-radius: 999px;
+        overflow: hidden;
+        position: relative;
     }
     .nq-loader-bar::before {
-        content: ""; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
-        background: linear-gradient(90deg, #7b6fd4, #e86fa0); border-radius: 999px;
+        content: "";
+        position: absolute;
+        left: -40%;
+        top: 0;
+        bottom: 0;
+        width: 40%;
+        background: linear-gradient(90deg, #7b6fd4, #e86fa0);
+        border-radius: 999px;
         animation: nq-loader-slide 1.6s ease-in-out infinite;
     }
-    @keyframes nq-loader-slide { 0%{ left:-40%; } 100% { left:100%; } }
+    @keyframes nq-loader-slide {
+        0%   { left: -40%; }
+        100% { left: 100%; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -826,7 +779,6 @@ def show_camera_page():
     <div class="nq-header">
       <div class="nq-avatar">🐥</div>
       <span class="nq-title">📸 وقت التصوير!</span>
-      <div style="width:40px;"></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -843,15 +795,14 @@ def show_camera_page():
         st.image(captured, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Primary on its own full-width row
-        if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
-            go_to_page("results")
-
-        col_back, col_retake = st.columns(2, gap="small")
-        with col_back:
+        col1, col2, col3 = st.columns([1.1, 1.9, 1])
+        with col1:
             if st.button("⬅ رجوع", use_container_width=True, key="camera_back"):
                 go_to_page("characters")
-        with col_retake:
+        with col2:
+            if st.button("✨ تعلّم هذه الكلمة!", use_container_width=True, type="primary", key="learn_word"):
+                go_to_page("results")
+        with col3:
             if st.button("↩️ إعادة", use_container_width=True, key="retake_after"):
                 reset_prediction()
                 st.session_state.pop("cam_input", None)
@@ -869,16 +820,19 @@ def show_camera_page():
         st.image(pending, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        confirm_clicked = st.button(
-            "✅ استخدم هذه الصورة",
-            use_container_width=True,
-            type="primary",
-            key="confirm_pic",
-        )
-        if st.button("🔄 صورة جديدة", use_container_width=True, key="retake_pending"):
-            st.session_state.pending_capture = None
-            st.session_state.pop("cam_input", None)
-            st.rerun()
+        col_use, col_retake = st.columns(2, gap="large")
+        with col_use:
+            confirm_clicked = st.button(
+                "✅ استخدم هذه الصورة",
+                use_container_width=True,
+                type="primary",
+                key="confirm_pic",
+            )
+        with col_retake:
+            if st.button("🔄 صورة جديدة", use_container_width=True, key="retake_pending"):
+                st.session_state.pending_capture = None
+                st.session_state.pop("cam_input", None)
+                st.rerun()
 
         if confirm_clicked:
             loader_placeholder = st.empty()
@@ -890,7 +844,6 @@ def show_camera_page():
             </div>
             """, unsafe_allow_html=True)
 
-            # Pass raw pending data; segment_image will crop and then call API.
             result = segment_image(("capture.jpg", pending, "image/jpeg"))
             loader_placeholder.empty()
 
@@ -907,21 +860,19 @@ def show_camera_page():
     st.markdown(
         '<div class="nq-instruction">'
         '<span class="nq-instruction-icon">🎯</span>'
-        '<p class="nq-instruction-text">ضع الشيء داخل المربع المضيء ثم اضغطي على الزر البنفسجي</p>'
+        '<p class="nq-instruction-text">ضع الشيء داخل الإطار ثم اضغطي على الزر البنفسجي</p>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    # st.camera_input handles raw image capture.
     cam_shot = st.camera_input("التقط صورة", label_visibility="collapsed", key="cam_input")
 
     if cam_shot is not None:
-        # Keep raw capture; crop happens on confirmation to match the guide.
-        st.session_state.pending_capture = cam_shot.getvalue()
+        cropped_bytes = _center_square_crop(cam_shot.getvalue())
+        st.session_state.pending_capture = cropped_bytes
         st.rerun()
 
-    # Place Back button safely at the bottom.
-    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     if st.button("⬅ رجوع", use_container_width=True, key="camera_back_empty"):
         go_to_page("characters")
 
