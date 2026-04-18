@@ -6,7 +6,12 @@ import base64
 import io
 import requests
 
-st.set_page_config(page_title="المستكشف الذكي", page_icon="🌟", layout="wide")
+st.set_page_config(
+    page_title="المستكشف الذكي",
+    page_icon="🌟",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
 # =============================
 # الملفات المطلوبة في نفس المجلد
@@ -172,6 +177,42 @@ def reset_prediction():
     st.session_state.audio_combined = None
     st.session_state.pending_capture = None
 
+def get_selected_character_image():
+    if st.session_state.selected_character == "بنت" and os.path.exists(girl_path):
+        return girl_path
+    if st.session_state.selected_character == "ولد" and os.path.exists(boy_path):
+        return boy_path
+    return None
+
+
+def show_selected_character_badge():
+    avatar_path = get_selected_character_image()
+    if not avatar_path:
+        return
+
+    with open(avatar_path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode()
+
+    st.markdown(
+        f"""
+        <div class="selected-avatar-badge">
+            <img src="data:image/png;base64,{encoded}" alt="character">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def get_character_emoji() -> str:
+    """Match kidsApp: 👧 for girl, 🧒 for boy, default 🐥 if nothing picked."""
+    c = st.session_state.get("selected_character", "")
+    if c == "بنت":
+        return "👧"
+    if c == "ولد":
+        return "🧒"
+    return "🐥"
+
+
 # =============================
 # Shared CSS
 # =============================
@@ -209,10 +250,10 @@ html, body,
 }
 
 .main .block-container {
-  max-width: 1250px !important;
+  max-width: 430px !important;
   width: 100% !important;
   margin: 0 auto !important;
-  padding: 20px 24px 60px !important;
+  padding: 16px 14px 42px !important;
   animation: fadePage 0.55s ease;
 }
 
@@ -315,9 +356,10 @@ html, body,
 }
 
 .card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 18px 34px rgba(42,58,95,0.12);
+    transform: translateY(-4px);
+    box-shadow: 0 16px 28px rgba(42,58,95,0.12);
 }
+
 .img-box-girl {
     background: #efd7ee;
     border-radius: 24px;
@@ -507,6 +549,100 @@ div.stButton > button {
   box-shadow: 0 12px 24px rgba(91,110,255,0.24);
   transition: 0.18s ease;
 }
+.selected-avatar-badge {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(91,71,180,0.20);
+  padding: 4px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.selected-avatar-badge img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.welcome-title {
+  font-size: 42px;
+  text-align: center;
+}
+
+.welcome-subtitle {
+  font-size: 22px;
+  text-align: center;
+}
+
+.welcome-desc {
+  font-size: 18px;
+  text-align: center;
+  line-height: 1.9;
+}
+
+.main-title {
+  font-size: 34px;
+  text-align: center;
+}
+
+.sub-text {
+  font-size: 17px;
+  text-align: center;
+}
+
+.section-title {
+  font-size: 24px;
+}
+
+.pill {
+  font-size: 15px;
+  padding: 10px 16px;
+}
+
+.message-box {
+  font-size: 18px;
+  padding: 14px;
+}
+
+.char-name {
+    font-size: 20px;
+    font-weight: 900;
+    color: #18264a;
+    margin: 8px 0;
+    text-align: center;
+}
+
+.char-desc {
+    font-size: 14px;
+    color: #6d7792;
+    line-height: 1.7;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.start-btn {
+  max-width: 200px;
+  margin: 20px auto 0 auto;
+}
+
+.back-btn {
+  max-width: 140px;
+  margin-bottom: 14px;
+}
+
+div.stButton > button {
+  border-radius: 16px;
+  padding: 0.8rem 1rem;
+  font-size: 16px;
+}
 div.stButton > button:hover { transform: translateY(-2px); }
 .start-btn { max-width: 220px; margin: 28px auto 0 auto; }
 .back-btn { max-width: 170px; margin-bottom: 20px; }
@@ -535,42 +671,40 @@ def go_to_page(page_name: str):
 # Welcome page
 # =============================
 def show_welcome_page():
-    right_col, left_col = st.columns([1.2, 1], gap="large")
+    st.markdown('<div class="logo-wrap">', unsafe_allow_html=True)
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=190)
+    else:
+        st.warning("ملف logo.png غير موجود")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    with right_col:
-        if os.path.exists(logo_path):
-            st.image(logo_path, width=260)
-        else:
-            st.warning("ملف logo.png غير موجود")
+    st.markdown('<div class="welcome-title">ابدأ رحلتك</div>', unsafe_allow_html=True)
+    st.markdown('<div class="welcome-subtitle">مرحبًا بالمستكشف الذكي</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="welcome-desc">في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة، وتختار شخصيتك المفضلة لتبدأ المغامرة.</div>',
+        unsafe_allow_html=True,
+    )
 
-        st.markdown('<div class="welcome-title">ابدأ رحلتك</div>', unsafe_allow_html=True)
-        st.markdown('<div class="welcome-subtitle">مرحبًا بالمستكشف الذكي</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="welcome-desc">في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة، وتختار شخصيتك المفضلة لتبدأ المغامرة.</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            """
+    st.markdown(
+        """
+        <div style="text-align:center;">
             <span class="pill">🌈 ممتع</span>
             <span class="pill">🧠 ذكي</span>
             <span class="pill">✨ مناسب للأطفال</span>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
-        if st.button("ابدأ", key="start_welcome"):
-            go_to_page("characters")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with left_col:
+    if os.path.exists(kids_image_path):
         st.markdown('<div class="floating-image">', unsafe_allow_html=True)
-        if os.path.exists(kids_image_path):
-            st.image(kids_image_path, width=460)
-        else:
-            st.warning("ملف kids.png غير موجود")
+        st.image(kids_image_path, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+    if st.button("ابدأ", key="start_welcome"):
+        go_to_page("characters")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
 # Character page
@@ -581,150 +715,222 @@ def show_character_page():
         go_to_page("welcome")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    left, right = st.columns([1.1, 1], gap="large")
+    st.markdown(
+        '<div class="main-title">اختَر <span class="highlight">شخصيتك</span></div>',
+        unsafe_allow_html=True,
+    )
 
-    with left:
-        st.markdown(
-            '<div class="main-title">هيا نبدأ <span class="highlight">رحلة</span><br>التعلّم</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            '<div class="sub-text">اختر شخصيتك المفضلة لتبدأ رحلة تعليمية ممتعة وودودة صُممت خصيصًا للأطفال.</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            """
-            <span class="pill">🌈 ممتع</span>
-            <span class="pill">📚 سهل</span>
-            <span class="pill">✨ لطيف</span>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        '<div class="sub-text">لازم تختار شخصية أولًا قبل ما تبدأ التعلّم.</div>',
+        unsafe_allow_html=True,
+    )
 
-        if st.session_state.selected_character:
-            st.markdown(
-                f'<div class="message-box">لقد اخترت: {st.session_state.selected_character} 💛</div>',
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        """
+        <div style="text-align:center;">
+            <span class="pill">👧 بنت</span>
+            <span class="pill">👦 ولد</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="section-title">اختر شخصيتك</div>', unsafe_allow_html=True)
+
+    col_girl, col_boy = st.columns(2, gap="small")
+
+    with col_girl:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="img-box-girl">', unsafe_allow_html=True)
+
+        if os.path.exists(girl_path):
+            st.image(Image.open(girl_path), width=140)
         else:
-            st.markdown(
-                '<div class="message-box">اختر شخصية للمتابعة 💛</div>',
-                unsafe_allow_html=True,
-            )
+            st.error("ملف girl.png غير موجود")
 
-        st.markdown('<div class="note">هذه الصفحة مخصصة فقط لاختيار الشخصية في البداية.</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="char-name">بنت</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="char-desc">رفيقة تعلم مرحة تحب القصص، والألوان، واكتشاف أشياء جديدة.</div>',
+            unsafe_allow_html=True,
+        )
 
-        st.markdown('<div class="start-btn">', unsafe_allow_html=True)
-        if st.button("ابدأ التعلّم", key="start_learning_btn"):
-            go_to_page("camera")
+        if st.button("اختيار البنت", key="girl_button_unique"):
+            st.session_state.selected_character = "بنت"
+            st.rerun()
+
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with right:
-        st.markdown('<div class="section-title">اختر شخصيتك</div>', unsafe_allow_html=True)
-        col_girl, col_boy = st.columns(2, gap="large")
+    with col_boy:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="img-box-boy">', unsafe_allow_html=True)
 
-        with col_girl:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="img-box-girl">', unsafe_allow_html=True)
-            if os.path.exists(girl_path):
-                st.image(Image.open(girl_path), width=220)
-            else:
-                st.error("ملف girl.png غير موجود")
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('<div class="char-name">بنت</div>', unsafe_allow_html=True)
-            st.markdown('<div class="char-desc">رفيقة تعلم مرحة تحب القصص، والألوان، واكتشاف أشياء جديدة.</div>', unsafe_allow_html=True)
-            if st.button("اختيار البنت", key="girl_button_unique"):
-                st.session_state.selected_character = "بنت"
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        if os.path.exists(boy_path):
+            st.image(Image.open(boy_path), width=140)
+        else:
+            st.error("ملف boy.png غير موجود")
 
-        with col_boy:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="img-box-boy">', unsafe_allow_html=True)
-            if os.path.exists(boy_path):
-                st.image(Image.open(boy_path), width=220)
-            else:
-                st.error("ملف boy.png غير موجود")
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('<div class="char-name">ولد</div>', unsafe_allow_html=True)
-            st.markdown('<div class="char-desc">رفيق تعلم نشيط يحب الألعاب، والتحديات، والمغامرات الممتعة.</div>', unsafe_allow_html=True)
-            if st.button("اختيار الولد", key="boy_button_unique"):
-                st.session_state.selected_character = "ولد"
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="char-name">ولد</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="char-desc">رفيق تعلم نشيط يحب الألعاب، والتحديات، والمغامرات الممتعة.</div>',
+            unsafe_allow_html=True,
+        )
+
+        if st.button("اختيار الولد", key="boy_button_unique"):
+            st.session_state.selected_character = "ولد"
+            st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.session_state.selected_character:
+        st.markdown(
+            f'<div class="message-box">تم اختيار: {st.session_state.selected_character} 💛</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="message-box">اختر بنت أو ولد أولًا</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div class="note">لن تتمكن من المتابعة حتى تختار الشخصية.</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="start-btn">', unsafe_allow_html=True)
+    start_disabled = st.session_state.selected_character == ""
+
+    if st.button("ابدأ التعلّم", key="start_learning_btn", disabled=start_disabled):
+        go_to_page("camera")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
 # Camera page
 # =============================
+
 def show_camera_page():
-    # ---------- Camera-page CSS ----------
-    # Uses ONLY reliable selectors. No JS injection, no :has() trickery.
-    # We skip the on-video guide square because Streamlit's camera_input is a
-    # closed widget — we can't safely overlay on top of its video without risking
-    # hiding it entirely (as we just saw). Instead we style the OUTER container
-    # with a matching dark frame + purple shutter so it still feels like the reference.
+    show_selected_character_badge()
+    # Camera page styling from kidsApp.py (mobile-friendly preview + guide square + shutter)
     st.markdown("""
     <style>
-    /* Outer camera container — dark rounded frame */
+    /* Dark frame = the camera widget itself */
     [data-testid="stCameraInput"] {
-        border-radius: 24px;
-        background: #1a1a2e;
-        box-shadow: 0 8px 28px rgba(91,71,180,0.30);
-        padding: 10px 10px 4px;
-        max-width: 460px;
-        margin: 0 auto 12px;
-        position: relative;
+        position: relative !important;
+        background: #1a1a2e !important;
+        border-radius: 28px !important;
+        box-shadow: 0 8px 32px rgba(91,71,180,0.30) !important;
+        padding: 12px !important;
+        max-width: 460px !important;
+        margin: 0 auto 12px !important;
+        overflow: hidden !important;
     }
-    /* Round the live video and the captured still */
+
+    /* The inner wrapper around the video — force 3:4 block */
+    [data-testid="stCameraInput"] > div:first-child {
+        width: 100% !important;
+        aspect-ratio: 3 / 4 !important;
+        position: relative !important;
+        border-radius: 20px !important;
+        overflow: hidden !important;
+        background: #000 !important;
+    }
+
+    /* Make video + captured still actually FILL the frame (fixes the tiny preview) */
     [data-testid="stCameraInput"] video,
     [data-testid="stCameraInput"] img {
-        border-radius: 16px !important;
+        position: absolute !important;
+        inset: 0 !important;
         width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 20px !important;
         display: block !important;
     }
 
-    /* Four corner marks, anchored to the OUTER container (reliable) */
-    [data-testid="stCameraInput"]::before,
-    [data-testid="stCameraInput"]::after {
+    /* ==== CORNER MARKS (four L-shaped corners on the inside) ==== */
+    [data-testid="stCameraInput"]::before {
         content: "";
         position: absolute;
-        width: 22px;
-        height: 22px;
-        border: 2px solid rgba(255,255,255,0.55);
+        top: 22px; left: 22px; right: 22px; bottom: 90px;
         pointer-events: none;
-        z-index: 5;
-    }
-    [data-testid="stCameraInput"]::before {
-        top: 18px; left: 18px;
-        border-right: none; border-bottom: none;
-        border-top-left-radius: 4px;
-    }
-    [data-testid="stCameraInput"]::after {
-        top: 18px; right: 18px;
-        border-left: none; border-bottom: none;
-        border-top-right-radius: 4px;
+        z-index: 4;
+        background:
+            linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 22px 2px no-repeat,
+            linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 2px 22px no-repeat,
+            linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 22px 2px no-repeat,
+            linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 2px 22px no-repeat,
+            linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 22px 2px no-repeat,
+            linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 2px 22px no-repeat,
+            linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 22px 2px no-repeat,
+            linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 2px 22px no-repeat;
     }
 
-    /* Restyle Streamlit's native capture button into the reference's shutter */
-    [data-testid="stCameraInput"] button {
+    /* ==== GLOWING GUIDE SQUARE — centered over the video area ==== */
+    [data-testid="stCameraInput"]::after {
+        content: "ضع الشيء هنا";
+        position: absolute;
+        top: calc(50% - 45px);
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 52%;
+        aspect-ratio: 1;
+        border-radius: 22px;
+        border: 2.5px solid rgba(200,185,255,0.9);
+        pointer-events: none;
+        z-index: 5;
+        animation: nq-glow-pulse 2.2s ease-in-out infinite;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 8px;
+        font-family: 'Tajawal', sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(210,200,255,0.9);
+    }
+    @keyframes nq-glow-pulse {
+        0%,100% {
+            box-shadow: 0 0 0 3px rgba(160,140,255,0.20),
+                        0 0 18px 4px rgba(160,140,255,0.35),
+                        inset 0 0 18px 2px rgba(160,140,255,0.10);
+            border-color: rgba(200,185,255,0.85);
+        }
+        50% {
+            box-shadow: 0 0 0 5px rgba(160,140,255,0.35),
+                        0 0 32px 10px rgba(160,140,255,0.55),
+                        inset 0 0 24px 6px rgba(160,140,255,0.20);
+            border-color: rgba(220,210,255,1);
+        }
+    }
+
+    /* Primary shutter button */
+    [data-testid="stCameraInput"] button[kind="primary"],
+    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"],
+    [data-testid="stCameraInput"] > div > button:first-of-type {
         width: 72px !important;
         height: 72px !important;
+        min-width: 72px !important;
+        max-width: 72px !important;
         border-radius: 50% !important;
-        border: 4px solid #a89de8 !important;
+        border: 5px solid #a89de8 !important;
         background: #ffffff !important;
         color: transparent !important;
         font-size: 0 !important;
         padding: 0 !important;
         margin: 14px auto 6px !important;
         display: block !important;
-        box-shadow: 0 4px 20px rgba(123,111,212,0.35) !important;
+        box-shadow: 0 4px 22px rgba(123,111,212,0.38) !important;
         transition: transform 0.12s ease !important;
         position: relative !important;
     }
-    [data-testid="stCameraInput"] button:active {
+    [data-testid="stCameraInput"] button[kind="primary"]:active,
+    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"]:active,
+    [data-testid="stCameraInput"] > div > button:first-of-type:active {
         transform: scale(0.92) !important;
     }
-    [data-testid="stCameraInput"] button::before {
+    [data-testid="stCameraInput"] button[kind="primary"]::before,
+    [data-testid="stCameraInput"] button[kind="primaryFormSubmit"]::before,
+    [data-testid="stCameraInput"] > div > button:first-of-type::before {
         content: "";
         position: absolute;
         top: 50%; left: 50%;
@@ -734,15 +940,37 @@ def show_camera_page():
         background: linear-gradient(135deg, #7b6fd4, #5a4fb0);
     }
 
+    /* Switch camera / clear — subtle, not a second shutter */
+    [data-testid="stCameraInput"] button:not([kind="primary"]):not([kind="primaryFormSubmit"]):not(:first-of-type) {
+        width: auto !important;
+        height: 32px !important;
+        min-width: auto !important;
+        max-width: none !important;
+        background: rgba(255,255,255,0.12) !important;
+        color: rgba(255,255,255,0.8) !important;
+        border: none !important;
+        border-radius: 10px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        padding: 4px 12px !important;
+        margin: 6px auto !important;
+        box-shadow: none !important;
+        display: inline-flex !important;
+    }
+    [data-testid="stCameraInput"] button:not([kind="primary"]):not([kind="primaryFormSubmit"]):not(:first-of-type)::before {
+        display: none !important;
+    }
+
+    [data-testid="stCameraInput"] label,
+    [data-testid="stCameraInput"] [data-testid="stWidgetLabel"] {
+        display: none !important;
+    }
+
     /* Loader card during API call */
     .nq-loader-card {
-        background: #ffffff;
-        border-radius: 28px;
-        padding: 36px 24px;
-        text-align: center;
-        box-shadow: 0 10px 32px rgba(91,71,180,0.15);
-        margin: 24px auto;
-        max-width: 520px;
+        background: #ffffff; border-radius: 28px; padding: 36px 24px;
+        text-align: center; box-shadow: 0 10px 32px rgba(91,71,180,0.15);
+        margin: 24px auto; max-width: 520px;
     }
     .nq-loader-emoji {
         font-size: 72px;
@@ -750,46 +978,28 @@ def show_camera_page():
         display: inline-block;
     }
     @keyframes nq-loader-bounce {
-        0%, 100% { transform: translateY(0) rotate(-6deg); }
-        50%      { transform: translateY(-12px) rotate(6deg); }
+        0%,100% { transform: translateY(0) rotate(-6deg); }
+        50%     { transform: translateY(-12px) rotate(6deg); }
     }
-    .nq-loader-text {
-        font-size: 24px;
-        font-weight: 800;
-        color: #4a3ea0;
-        margin-top: 16px;
-    }
+    .nq-loader-text { font-size: 24px; font-weight: 800; color: #4a3ea0; margin-top: 16px; }
     .nq-loader-bar {
-        margin: 20px auto 0;
-        height: 10px;
-        width: 85%;
-        max-width: 360px;
-        background: #e9e5fa;
-        border-radius: 999px;
-        overflow: hidden;
-        position: relative;
+        margin: 20px auto 0; height: 10px; width: 85%; max-width: 360px;
+        background: #e9e5fa; border-radius: 999px; overflow: hidden; position: relative;
     }
     .nq-loader-bar::before {
-        content: "";
-        position: absolute;
-        left: -40%;
-        top: 0; bottom: 0;
-        width: 40%;
-        background: linear-gradient(90deg, #7b6fd4, #e86fa0);
-        border-radius: 999px;
+        content: ""; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
+        background: linear-gradient(90deg, #7b6fd4, #e86fa0); border-radius: 999px;
         animation: nq-loader-slide 1.6s ease-in-out infinite;
     }
-    @keyframes nq-loader-slide {
-        0%   { left: -40%; }
-        100% { left: 100%; }
-    }
+    @keyframes nq-loader-slide { 0%{ left:-40%; } 100% { left:100%; } }
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
+    st.markdown(f"""
     <div class="nq-header">
-      <div class="nq-avatar">🐥</div>
+      <div class="nq-avatar">{get_character_emoji()}</div>
       <span class="nq-title">📸 وقت التصوير!</span>
+      <div style="width:44px;"></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -877,7 +1087,7 @@ def show_camera_page():
     st.markdown(
         '<div class="nq-instruction">'
         '<span class="nq-instruction-icon">🎯</span>'
-        '<p class="nq-instruction-text">ضع الشيء داخل الإطار ثم اضغطي على الزر البنفسجي</p>'
+        '<p class="nq-instruction-text">ضع الشيء داخل المربع المضيء ثم اضغطي على الزر البنفسجي</p>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -903,9 +1113,10 @@ def to_eastern(n: int) -> str:
 
 
 def show_results_page():
-    st.markdown("""
+    show_selected_character_badge()
+    st.markdown(f"""
     <div class="nq-header">
-      <div class="nq-avatar">🐥</div>
+      <div class="nq-avatar">{get_character_emoji()}</div>
       <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>
       <div class="nq-back">›</div>
     </div>
