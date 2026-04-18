@@ -373,16 +373,16 @@ html, body,
   background: rgba(238,234,248,0.55);
 }
 .welcome-wrap {
-  position: relative; z-index: 2;
+  position: relative;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   text-align: center;
-  height: 90dvh;
   width: 100%;
-  padding: 20px;
-  gap: 10px;
+  padding-top: 5px;
+  gap: 8px;
 }
 .welcome-logo-container img {
   max-width: 180px;
@@ -592,6 +592,11 @@ div.stButton > button:hover { transform: translateY(-2px); }
 @keyframes nq-slide { 0%{ left: -40%; } 100% { left: 100%; } }
 
 [data-testid="stImage"] img { border-radius: 20px; box-shadow: 0 4px 16px rgba(91,71,180,0.14); }
+
+div.stButton {
+  position: relative;
+  z-index: 10;
+}
 </style>
 
 <div class="blob-bg">
@@ -607,33 +612,22 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 # Page 1 — Welcome (compact, no scroll, full-width أستكشف!)
 # =============================================================================
 def show_welcome_page():
-    # 1. Background
     bg_path = "kids.png"
     if os.path.exists(bg_path):
         with open(bg_path, "rb") as f:
             bg_b64 = base64.b64encode(f.read()).decode()
-        _ext = bg_path.rsplit(".", 1)[-1].lower()
-        _mime = "image/png" if _ext == "png" else "image/jpeg"
         st.markdown(
-            f'<div class="welcome-bg" style="background-image:url(\'data:{_mime};base64,{bg_b64}\');"></div>'
+            f'<div class="welcome-bg" style="background-image:url(\'data:image/png;base64,{bg_b64}\');"></div>'
             f'<div class="welcome-bg-overlay"></div>',
             unsafe_allow_html=True,
         )
 
-    # 2. Logo as base64 inside welcome-wrap (avoids separate Streamlit widget blocks)
     logo_html = ""
     if os.path.exists(logo_path):
         with open(logo_path, "rb") as f:
             logo_b64 = base64.b64encode(f.read()).decode()
-        lext = logo_path.rsplit(".", 1)[-1].lower()
-        lmime = "image/png" if lext == "png" else "image/jpeg"
-        logo_html = (
-            f'<div class="welcome-logo-container">'
-            f'<img src="data:{lmime};base64,{logo_b64}" alt="">'
-            f"</div>"
-        )
+        logo_html = f'<div class="welcome-logo-container"><img src="data:image/png;base64,{logo_b64}"></div>'
 
-    # 3. Single centered HTML block (flex layout in CSS)
     st.markdown(
         f"""
         <div class="welcome-wrap">
@@ -653,7 +647,6 @@ def show_welcome_page():
         unsafe_allow_html=True,
     )
 
-    # 4. Streamlit button after markup so clicks are handled normally
     if st.button("أستكشف! 🚀", key="start_welcome", type="primary", use_container_width=True):
         go_to_page("characters")
 
