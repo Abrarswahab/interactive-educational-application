@@ -213,42 +213,39 @@ def run_yolo(model_obj, img: Image.Image):
     return results, label_en, top_conf, coverage_pct
 
 
-def run_google_vision(img_bytes: bytes):
-    """Returns (label_en, confidence) or None. Raises HTTPException on auth/quota errors."""
+def run_google_vision(img: Image.Image):
+    """Returns (label_en, confidence) or None. Raises HTTPException on API / connection errors."""
     if not GOOGLE_VISION_ENABLED:
         raise HTTPException(status_code=503, detail="Google Vision API غير مفعّل على الخادم.")
 
-    b64 = base64.b64encode(img_bytes).decode("ascii")
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG")
+    b64_string = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
     payload = {
         "requests": [{
-            "image": {"content": b64},
+            "image": {"content": b64_string},
             "features": [{"type": "LABEL_DETECTION", "maxResults": 5}],
         }]
     }
     url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
+
     try:
         r = requests.post(url, json=payload, timeout=20)
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Google Vision request failed: {e}")
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=f"Google Vision Error: {r.text}")
 
-    if r.status_code == 400:
-        raise HTTPException(status_code=400, detail="Google Vision: صيغة الصورة غير صالحة.")
-    if r.status_code in (401, 403):
-        raise HTTPException(status_code=502, detail="Google Vision: المفتاح غير صالح أو الصلاحيات ناقصة.")
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Google Vision error {r.status_code}: {r.text[:200]}")
-
-    try:
         data = r.json()
-        labels = data["responses"][0].get("labelAnnotations", [])
-    except Exception:
-        return None
+        responses = data.get("responses", [])
+        if not responses or "labelAnnotations" not in responses[0]:
+            return None
 
-    if not labels:
-        return None
-
-    top = labels[0]
-    return top.get("description", ""), float(top.get("score", 0.0))
+        top = responses[0]["labelAnnotations"][0]
+        return top.get("description", ""), float(top.get("score", 0.0))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"خطأ في الاتصال بـ Google Vision: {str(e)}")
 
 
 def run_imagga(img_bytes: bytes):
@@ -472,12 +469,7 @@ async def segment(
 
     # ---- Cloud API branches (classification only — no masks) -------------
     elif model == "google_vision":
-        # Convert to standardized JPEG bytes to fix invalid format errors
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG")
-        standardized_raw = buf.getvalue()
-
-        r = run_google_vision(standardized_raw)
+        r = run_google_vision(img)
         if r is None:
             raise HTTPException(status_code=422,
                                 detail="Google Vision لم تتعرف على أي شيء في الصورة.")
