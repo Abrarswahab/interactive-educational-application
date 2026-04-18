@@ -6,7 +6,7 @@ Changes in this version:
              no scrolling, button text "أستكشف!" pinned full-width at bottom.
   2. Page 2: clicking a character immediately navigates to camera (no ابدأ التعلّم button).
              Removed لازم اختيار شخصية / تم اختيار phrases.
-  3. Page 3: 3 models only (custom default). No COCO/yolov8x-seg references.
+  3. Page 3: 2 models only (custom default). No COCO/yolov8x-seg references.
              No top-right emoji. Gendered ضع / ضعي instruction.
   4. Page 4 → Page 6 directly (no intermediate "learn this pic" step).
   5. Page 6: English label burned over segmentation image, Arabic word + spelling
@@ -46,9 +46,9 @@ ENGLISH_FONT_CANDIDATES = [
 # =============================================================================
 API_URL = "https://interactive-educational-application-production.up.railway.app"
 
-# The 3 models we support in this build.
+# The 2 models we support in this build.
 # `custom` is the default and is always selected at startup.
-ALLOWED_MODELS = {"custom", "google_vision", "imagga"}
+ALLOWED_MODELS = {"custom", "imagga"}
 DEFAULT_MODEL  = "custom"
 
 # =============================================================================
@@ -164,9 +164,6 @@ def fetch_available_models() -> list:
         {"id": "custom",        "name_ar": "نموذج الأطفال", "emoji": "🎯",
          "num_classes_label": "82",    "available": True,
          "description_ar": "مدرّب على الأشياء المألوفة للأطفال."},
-        {"id": "google_vision", "name_ar": "Google Vision", "emoji": "🌐",
-         "num_classes_label": "آلاف",  "available": False,
-         "description_ar": "نموذج سحابي يغطي آلاف الفئات."},
         {"id": "imagga",        "name_ar": "Imagga",        "emoji": "🏷️",
          "num_classes_label": "3000+", "available": False,
          "description_ar": "نموذج سحابي يوفر أكثر من 3000 وسم للصور."},
@@ -178,9 +175,9 @@ def fetch_available_models() -> list:
             all_models = r.json().get("models", [])
             kept = [m for m in all_models if m.get("id") in ALLOWED_MODELS]
             if kept:
-                # Preserve the custom → google_vision → imagga order
+                # Preserve the custom → imagga order
                 ordered = []
-                for wanted in ("custom", "google_vision", "imagga"):
+                for wanted in ("custom", "imagga"):
                     for m in kept:
                         if m["id"] == wanted:
                             ordered.append(m)
@@ -471,9 +468,8 @@ html, body,
   opacity: 0.55 !important; background: #eeeaf8 !important;
   cursor: not-allowed !important; transform: none !important; box-shadow: none !important;
 }
-.nq-picker-wrap.picker-sel-custom        [data-testid="element-container"]:nth-of-type(1) div.stButton > button,
-.nq-picker-wrap.picker-sel-google_vision [data-testid="element-container"]:nth-of-type(2) div.stButton > button,
-.nq-picker-wrap.picker-sel-imagga        [data-testid="element-container"]:nth-of-type(3) div.stButton > button {
+.nq-picker-wrap.picker-sel-custom [data-testid="element-container"]:nth-of-type(1) div.stButton > button,
+.nq-picker-wrap.picker-sel-imagga [data-testid="element-container"]:nth-of-type(2) div.stButton > button {
   background: linear-gradient(135deg,#ede9fc,#ddd5f8) !important;
   border-color: var(--purple) !important;
   box-shadow: 0 6px 16px rgba(123,111,212,0.25) !important;
@@ -495,7 +491,6 @@ html, body,
   margin-bottom: 8px; margin-left: 6px;
 }
 .nq-model-custom        { background: #e8f4ff; color: #1a5fa8; }
-.nq-model-google_vision { background: #e8faef; color: #1a7d3f; }
 .nq-model-imagga        { background: #ffeaf2; color: #a02060; }
 .nq-tts-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -731,14 +726,14 @@ def show_model_picker():
         unsafe_allow_html=True,
     )
 
-    # Card grid — one row of 3 for the three models
-    cols = st.columns(3, gap="small")
+    # Card grid — one row of 2 for the two models
+    cols = st.columns(2, gap="small")
     for i, m in enumerate(models):
         is_available = m.get("available", True)
         label = f"{m['emoji']} {m['name_ar']}\n{m['num_classes_label']} فئة"
         if not is_available:
             label += "\n(غير مفعّل)"
-        with cols[i % 3]:
+        with cols[i % 2]:
             if st.button(
                 label,
                 key=f"pick_model_{m['id']}",
@@ -970,7 +965,6 @@ def autoplay_audio(audio_bytes: bytes) -> None:
 
 MODEL_LABELS = {
     "custom":        ("🎯 نموذج الأطفال",   "nq-model-custom"),
-    "google_vision": ("🌐 Google Vision",  "nq-model-google_vision"),
     "imagga":        ("🏷️ Imagga",         "nq-model-imagga"),
 }
 
@@ -1033,7 +1027,7 @@ def show_results_page():
     elif captured:
         display_bytes = captured
 
-    is_cloud = model_used in ("google_vision", "imagga")
+    is_cloud = model_used in ("imagga",)
 
     st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
     if display_bytes:
