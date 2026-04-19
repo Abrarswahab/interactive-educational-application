@@ -357,40 +357,47 @@ html, body,
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   text-align: center;
   width: 100%;
-  padding-top: 5px;
-  gap: 8px;
+  min-height: calc(100vh - 160px);
+  padding: 24px 8px 20px;
+  gap: 22px;
 }
-.welcome-brand {
-  font-size: 42px;
+.welcome-title-c {
+  font-size: 34px;
   font-weight: 900;
-  background: linear-gradient(135deg, #7b6fd4 0%, #e86fa0 60%, #5a4fb0 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  letter-spacing: 0.5px;
-  text-shadow: 0 2px 18px rgba(123,111,212,0.18);
-  padding: 4px 8px;
-  line-height: 1.1;
-  margin-bottom: 4px;
+  color: #18264a;
+  line-height: 1.2;
+  margin-top: 8px;
 }
-.welcome-title-c { font-size: 32px; font-weight: 900; color: #18264a; line-height: 1.15; }
-.welcome-subtitle-c { font-size: 17px; font-weight: 800; color: #6d7792; }
+.welcome-subtitle-c {
+  font-size: 18px;
+  font-weight: 800;
+  color: #6d7792;
+  margin-top: -8px;
+}
 .welcome-desc-c {
-  font-size: 14px; color: #7a849f; line-height: 1.65;
-  background: rgba(255,255,255,0.92); border-radius: 18px; padding: 12px 16px;
+  font-size: 14.5px;
+  color: #5c6580;
+  line-height: 1.75;
+  background: rgba(255,255,255,0.94);
+  border-radius: 22px;
+  padding: 18px 20px;
   box-shadow: var(--card-shadow);
-  max-width: 360px; margin: 0 auto;
+  max-width: 360px;
+  margin: 6px auto 0;
 }
 .welcome-pills {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
 }
 .pill-sm {
   display: inline-block; background: rgba(255,255,255,0.98);
-  padding: 8px 16px; border-radius: 999px;
+  padding: 9px 18px; border-radius: 999px;
   font-weight: 800; color: #667089; font-size: 14px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
@@ -599,17 +606,17 @@ def show_welcome_page():
     st.markdown(
         """
 <div class="welcome-wrap">
-<div class="welcome-brand">المستكشف الذكي</div>
-<div class="welcome-title-c">ابدأ رحلتك</div>
-<div class="welcome-subtitle-c">مرحبًا بالمستكشف الذكي</div>
-<div class="welcome-desc-c">
-في هذه الرحلة الجميلة ستتعرف على الأشياء، وتتعلم بطريقة ممتعة.
-</div>
-<div class="welcome-pills">
-<span class="pill-sm">🌈 ممتع</span>
-<span class="pill-sm">🧠 ذكي</span>
-<span class="pill-sm">✨ للأطفال</span>
-</div>
+  <div class="welcome-title-c">ابدأ رحلتك</div>
+  <div class="welcome-subtitle-c">رفيقك الذكي في عالم الاكتشاف</div>
+  <div class="welcome-desc-c">
+    في هذه الرحلة الجميلة ستتعرّف على الأشياء،<br/>
+    وتتعلم بطريقة ممتعة ومشوّقة.
+  </div>
+  <div class="welcome-pills">
+    <span class="pill-sm">🌈 ممتع</span>
+    <span class="pill-sm">🧠 ذكي</span>
+    <span class="pill-sm">✨ للأطفال</span>
+  </div>
 </div>
 """,
         unsafe_allow_html=True,
