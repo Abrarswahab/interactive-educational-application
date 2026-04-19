@@ -132,7 +132,6 @@ streamlit run kidsapp.py
   "label_ar": "موز",
   "label_en": "banana",
   "confidence": 0.94,
-  "emoji": "🍌",
   "spelling": ["م", "و", "ز"]
 }
 ```
