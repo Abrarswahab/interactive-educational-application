@@ -804,11 +804,11 @@ def show_camera_page():
     st.markdown(CAMERA_CSS, unsafe_allow_html=True)
 
     st.markdown(
-        f'<div class="nq-header">'
-        f'  <div class="nq-avatar">{get_character_emoji()}</div>'
-        f'  <span class="nq-title">📸 وقت التصوير!</span>'
-        f'  <div class="nq-header-spacer"></div>'
-        f'</div>',
+        '<div class="nq-header">'
+        '  <div class="nq-header-spacer"></div>'
+        '  <span class="nq-title">📸 وقت التصوير!</span>'
+        '  <div class="nq-header-spacer"></div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -926,11 +926,11 @@ def show_results_page():
         st.session_state["_results_page_init"] = True
 
     st.markdown(
-        f'<div class="nq-header">'
-        f'  <div class="nq-avatar">{get_character_emoji()}</div>'
-        f'  <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>'
-        f'  <div class="nq-header-spacer"></div>'
-        f'</div>',
+        '<div class="nq-header">'
+        '  <div class="nq-header-spacer"></div>'
+        '  <span class="nq-title">✨ تعلّمت كلمة جديدة!</span>'
+        '  <div class="nq-header-spacer"></div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -1077,9 +1077,10 @@ def show_results_page():
                     st.audio(audio_data, format="audio/mp3")
 
     # ── Action button ───────────────────────────────────────────────────
-    if st.button("⭐ احفظ الكلمة", use_container_width=True,
-                 type="primary", key="save_word"):
-        st.success("✅ تم الحفظ!")
+    if st.button("🔄 جرّب مرة أخرى", use_container_width=True,
+                 type="primary", key="try_again"):
+        reset_prediction()
+        go_to_page("camera")
 
 # =============================================================================
 # Router
