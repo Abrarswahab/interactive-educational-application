@@ -1076,16 +1076,10 @@ def show_results_page():
                 if audio_data:
                     st.audio(audio_data, format="audio/mp3")
 
-    # ── Action buttons ──────────────────────────────────────────────────
-    col1, col2 = st.columns(2, gap="small")
-    with col1:
-        if st.button("📷 صورة أخرى", use_container_width=True, key="capture_again"):
-            reset_prediction()
-            go_to_page("camera")
-    with col2:
-        if st.button("⭐ احفظ الكلمة", use_container_width=True,
-                     type="primary", key="save_word"):
-            st.success("✅ تم الحفظ!")
+    # ── Action button ───────────────────────────────────────────────────
+    if st.button("⭐ احفظ الكلمة", use_container_width=True,
+                 type="primary", key="save_word"):
+        st.success("✅ تم الحفظ!")
 
 # =============================================================================
 # Router
