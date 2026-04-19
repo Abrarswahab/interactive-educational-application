@@ -43,10 +43,13 @@ An **AI-powered interactive learning application** designed for children (ages 5
 - Uvicorn  
 
 ### 🤖 AI & Vision
-- Ultralytics YOLO  
-
+- Ultralytics YOLO (custom-trained segmentation model)
+- Imagga API (cloud image classification — 3000+ tags)
+- arabic-reshaper + python-bidi (Arabic text rendering)
+- deep-translator (English → Arabic)
+- 
 ### 🔊 Audio
-- Google Text-to-Speech (gTTS)
+- edge-tts (Microsoft Neural TTS — primary)
 
 ---
 
@@ -88,6 +91,9 @@ project/
 ---
 
 ## 🚀 Running the Project
+ 
+You can try the app directly online here:  
+👉 [Smart Explorer Live Demo](https://interactive-educational-application-753zfvedwb6f4mkfjkbfet.streamlit.app/)
 
 ### 1️⃣ Backend (FastAPI)
 
@@ -155,18 +161,14 @@ streamlit run kidsapp.py
 * 🧠 More object categories (100+)
 
 ---
-
 ## 👩‍💻 Team
 
-* Lana Aljuaid
-* Abdularhmn
-* Abrar
-* Mohamed
+* [Lana Aljuaid](https://github.com/LanaAljuaid)
+* [Abdulrahman K B](https://github.com/AbdulrahmanB-25)
+* [Abrar Alabdulwahab](https://github.com/Abrarswahab)
+* [Mohammed Alburaq](https://github.com/MohammedKQ)
 
 ---
-
-## 🏷️ Project Name
-
 **Smart Explorer**
 
 > Making learning fun for kids 💡✨
