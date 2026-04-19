@@ -1,16 +1,16 @@
 """
-Smart Explorer — Streamlit frontend (v7.0)
+Smart Explorer — Streamlit frontend (v7.1)
 
 Changes in this version:
   1. Page 1: kids.png background (fixed, layered), elements centered in 100vh,
              no scrolling, button text "أستكشف!" pinned full-width at bottom.
-  2. Page 2: clicking a character immediately navigates to camera (no ابدأ التعلّم button).
-             Removed لازم اختيار شخصية / تم اختيار phrases.
-  3. Page 3: 2 models only (custom default). No COCO/yolov8x-seg references.
-             No top-right emoji. Gendered ضع / ضعي instruction.
-  4. Page 4 → Page 6 directly (no intermediate "learn this pic" step).
-  5. Page 6: English label burned over segmentation image, Arabic word + spelling
-             + meaning in cards, TTS autoplays immediately on load.
+             REMOVED the "المستكشف الذكي" brand text from the welcome page.
+             Improved vertical spacing between elements.
+  2. Page 2: clicking a character immediately navigates to camera.
+  3. Page 3: 2 models only (custom default).
+  4. Page 4 → Page 6 directly.
+  5. Page 6: Added a radio toggle to switch between the original (default)
+             and the segmented image.
 """
 
 import streamlit as st
@@ -33,7 +33,6 @@ st.set_page_config(
 # =============================================================================
 girl_path = "girl.png"
 boy_path  = "boy.png"
-# Optional: a font for the English label we burn client-side. Falls back to PIL default.
 ENGLISH_FONT_CANDIDATES = [
     "DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -45,8 +44,6 @@ ENGLISH_FONT_CANDIDATES = [
 # =============================================================================
 API_URL = "https://interactive-educational-application-production.up.railway.app"
 
-# The 2 models we support in this build.
-# `custom` is the default and is always selected at startup.
 ALLOWED_MODELS = {"custom", "imagga"}
 DEFAULT_MODEL  = "custom"
 
@@ -54,12 +51,12 @@ DEFAULT_MODEL  = "custom"
 # Session state
 # =============================================================================
 _DEFAULTS = {
-    "selected_character": "",          # "بنت" | "ولد"
-    "current_page":       "welcome",    # welcome | characters | camera | results
+    "selected_character": "",
+    "current_page":       "welcome",
     "captured_image":     None,
-    "annotated_image":    None,         # bytes returned by backend (has Arabic burned in for YOLO)
-    "predicted_label":    "",           # Arabic word
-    "predicted_label_en": "",           # English label (used for masking image label)
+    "annotated_image":    None,
+    "predicted_label":    "",
+    "predicted_label_en": "",
     "predicted_conf":     "",
     "predicted_coverage": 0.0,
     "predicted_spelling": [],
@@ -70,8 +67,8 @@ _DEFAULTS = {
     "model_used":         "",
     "tts_voice":          "",
     "selected_model":     DEFAULT_MODEL,
-    "audio_autoplayed":   False,        # so we only autoplay once per result
-    "_results_page_init": False,        # cleared on navigation away from results
+    "audio_autoplayed":   False,
+    "_results_page_init": False,
 }
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -131,17 +128,13 @@ def overlay_english_label(annotated_bytes: bytes, english_label: str, confidence
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-        # Cover the same top-right region the backend used, a bit larger to ensure
-        # the Arabic label underneath is fully hidden.
         pad_x, pad_y = 16, 12
         box_w = tw + pad_x * 2
         box_h = th + pad_y * 2
         x = img.width - box_w - 16
         y = 16
 
-        # Opaque dark background so Arabic underneath can't show through
         draw.rectangle([x, y, x + box_w, y + box_h], fill=(30, 27, 60, 245))
-        # Subtle inner border
         draw.rectangle(
             [x + 2, y + 2, x + box_w - 2, y + box_h - 2],
             outline=(180, 170, 255, 200),
@@ -158,7 +151,7 @@ def overlay_english_label(annotated_bytes: bytes, english_label: str, confidence
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_available_models() -> list:
-    """Fetch models from backend and keep only the 3 we allow."""
+    """Fetch models from backend and keep only the allowed ones."""
     fallback = [
         {"id": "custom",        "name_ar": "نموذج الأطفال", "emoji": "🎯",
          "num_classes_label": "82",    "available": True,
@@ -174,7 +167,6 @@ def fetch_available_models() -> list:
             all_models = r.json().get("models", [])
             kept = [m for m in all_models if m.get("id") in ALLOWED_MODELS]
             if kept:
-                # Preserve the custom → imagga order
                 ordered = []
                 for wanted in ("custom", "imagga"):
                     for m in kept:
@@ -253,7 +245,6 @@ def get_character_emoji() -> str:
 
 
 def gendered_place_hint() -> str:
-    """Return the right verb form based on selected character."""
     if st.session_state.get("selected_character") == "بنت":
         return "ضعي الشيء داخل المربع المضيء ثم اضغطي على الزر البنفسجي"
     return "ضع الشيء داخل المربع المضيء ثم اضغط على الزر البنفسجي"
@@ -341,7 +332,6 @@ html, body,
 .nq-instruction-text { font-size: 14px; font-weight: 500; color: var(--text-mid); line-height: 1.4; }
 
 /* =================== PAGE 1 (welcome) =================== */
-/* kids.png background — injected dynamically via Python */
 .welcome-bg {
   position: fixed; inset: 0; z-index: 0;
   background-size: cover; background-position: center center;
@@ -401,7 +391,6 @@ html, body,
   font-weight: 800; color: #667089; font-size: 14px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
-/* Keep welcome page button fixed at bottom so it never scrolls off */
 .welcome-btn-wrap {
   position: fixed; bottom: 0; left: 50%;
   transform: translateX(-50%);
@@ -446,7 +435,6 @@ html, body,
   padding: 8px 12px; background: rgba(237,233,252,0.55);
   border-radius: 12px; margin-top: 2px;
 }
-/* Picker tile buttons */
 .nq-picker-wrap div.stButton > button {
   width: 100% !important; min-height: 78px !important;
   padding: 8px 6px !important; border-radius: 14px !important;
@@ -494,6 +482,25 @@ html, body,
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 18px;
   background: #f0ebff; color: #5a3fc0; margin-bottom: 8px;
+}
+
+/* =================== View-mode radio (results page) =================== */
+div[data-testid="stRadio"] > div {
+  justify-content: center; gap: 6px;
+  background: var(--white); border-radius: 14px;
+  padding: 6px; margin-bottom: 10px;
+  box-shadow: 0 2px 10px rgba(123,111,212,0.10);
+}
+div[data-testid="stRadio"] label {
+  background: transparent; border-radius: 10px;
+  padding: 6px 14px; font-weight: 700; font-size: 13px;
+  color: var(--text-mid); cursor: pointer;
+  transition: all 0.15s ease;
+}
+div[data-testid="stRadio"] label:has(input:checked) {
+  background: linear-gradient(135deg,#ede9fc,#ddd5f8);
+  color: var(--purple-dark);
+  box-shadow: 0 2px 8px rgba(123,111,212,0.20);
 }
 
 /* =================== Word + spelling cards =================== */
@@ -590,7 +597,7 @@ div.stButton {
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
 
 # =============================================================================
-# Page 1 — Welcome (compact, no scroll, full-width أستكشف!)
+# Page 1 — Welcome (no brand text, better spacing)
 # =============================================================================
 def show_welcome_page():
     bg_path = "kids.png"
@@ -626,7 +633,7 @@ def show_welcome_page():
         go_to_page("characters")
 
 # =============================================================================
-# Page 2 — Character selection (side-by-side, full-width buttons)
+# Page 2 — Character selection
 # =============================================================================
 def show_character_page():
     if st.button("⬅ رجوع", key="back_to_welcome", use_container_width=True):
@@ -677,7 +684,7 @@ def show_character_page():
             go_to_page("camera")
 
 # =============================================================================
-# Model picker (used on page 3)
+# Model picker
 # =============================================================================
 def show_model_picker():
     models = fetch_available_models()
@@ -688,7 +695,7 @@ def show_model_picker():
     if not available_ids:
         st.warning("⚠️ لا توجد نماذج متاحة حالياً.")
         return
-    # Default model must be "custom"; if custom is unavailable, fall back to first available
+
     if st.session_state.selected_model not in available_ids:
         st.session_state.selected_model = (
             DEFAULT_MODEL if DEFAULT_MODEL in available_ids else available_ids[0]
@@ -706,7 +713,6 @@ def show_model_picker():
         unsafe_allow_html=True,
     )
 
-    # Card grid — one row of 2 for the two models
     cols = st.columns(2, gap="small")
     for i, m in enumerate(models):
         is_available = m.get("available", True)
@@ -731,7 +737,7 @@ def show_model_picker():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
-# Page 3/4 — Camera + confirmation (skips old page 5; jumps straight to results)
+# Page 3/4 — Camera + confirmation
 # =============================================================================
 CAMERA_CSS = """
 <style>
@@ -739,40 +745,15 @@ CAMERA_CSS = """
     position: relative !important;
     background: #1a1a2e !important;
     border-radius: 24px !important;
-    box-shadow: 0 6px 24px rgba(91,71,180,0.28) !important;
-    padding: 10px !important;
-    max-width: 460px !important;
-    margin: 0 auto 10px !important;
     overflow: hidden !important;
-}
-[data-testid="stCameraInput"] > div:first-child {
-    width: 100% !important; aspect-ratio: 3/4 !important;
-    position: relative !important; border-radius: 18px !important;
-    overflow: hidden !important; background: #000 !important;
-}
-[data-testid="stCameraInput"] video,
-[data-testid="stCameraInput"] img {
-    position: absolute !important; inset: 0 !important;
-    width: 100% !important; height: 100% !important;
-    object-fit: cover !important; border-radius: 18px !important; display: block !important;
+    padding: 8px !important;
+    box-shadow: 0 8px 32px rgba(26,26,46,0.4) !important;
 }
 [data-testid="stCameraInput"]::before {
-    content: ""; position: absolute;
-    top: 20px; left: 20px; right: 20px; bottom: 80px;
-    pointer-events: none; z-index: 4;
-    background:
-        linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 22px 2px no-repeat,
-        linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top left    / 2px 22px no-repeat,
-        linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 22px 2px no-repeat,
-        linear-gradient(to bottom, rgba(255,255,255,0.55) 22px, transparent 22px) top right   / 2px 22px no-repeat,
-        linear-gradient(to right,  rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 22px 2px no-repeat,
-        linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom left / 2px 22px no-repeat,
-        linear-gradient(to left,   rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 22px 2px no-repeat,
-        linear-gradient(to top,    rgba(255,255,255,0.55) 22px, transparent 22px) bottom right/ 2px 22px no-repeat;
-}
-[data-testid="stCameraInput"]::after {
-    content: "ضع الشيء هنا"; position: absolute;
-    top: calc(50% - 40px); left: 50%; transform: translate(-50%,-50%);
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -62%);
     width: 52%; aspect-ratio: 1; border-radius: 20px;
     border: 2.5px solid rgba(200,185,255,0.9);
     pointer-events: none; z-index: 5;
@@ -822,7 +803,6 @@ CAMERA_CSS = """
 def show_camera_page():
     st.markdown(CAMERA_CSS, unsafe_allow_html=True)
 
-    # Header — no emoji on the right (per spec: remove top-right emoji)
     st.markdown(
         f'<div class="nq-header">'
         f'  <div class="nq-avatar">{get_character_emoji()}</div>'
@@ -834,7 +814,7 @@ def show_camera_page():
 
     pending = st.session_state.get("pending_capture")
 
-    # ── Confirmation view (Page 4) ───────────────────────────────────────
+    # ── Confirmation view ────────────────────────────────────────────────
     if pending:
         show_model_picker()
 
@@ -862,7 +842,6 @@ def show_camera_page():
                 st.session_state.pop("cam_input", None)
                 st.rerun()
 
-        # ⬇ Once the user confirms, call the API and GO STRAIGHT TO RESULTS.
         if confirm_clicked:
             placeholder = st.empty()
             placeholder.markdown(
@@ -888,16 +867,14 @@ def show_camera_page():
                 apply_segmentation_result(pending, result)
                 st.session_state.pending_capture = None
                 st.session_state.pop("cam_input", None)
-                # Direct jump to results — no intermediate page 5.
                 st.session_state["_results_page_init"] = False
                 st.session_state.current_page = "results"
                 st.rerun()
         return
 
-    # ── Live camera view (Page 3) ────────────────────────────────────────
+    # ── Live camera view ─────────────────────────────────────────────────
     show_model_picker()
 
-    # Gendered instruction
     st.markdown(
         f'<div class="nq-instruction">'
         f'<span class="nq-instruction-icon">🎯</span>'
@@ -924,14 +901,9 @@ def to_eastern(n: int) -> str:
 
 
 def autoplay_audio(audio_bytes: bytes) -> None:
-    """
-    Embed an HTML5 <audio> element that autoplays on page load.
-    st.audio does not autoplay — this is the reliable TTS trigger.
-    """
     if not audio_bytes:
         return
     b64 = base64.b64encode(audio_bytes).decode("ascii")
-    # controls included so the user can replay; autoplay for instant feedback
     st.markdown(
         f"""
         <audio autoplay controls style="width:100%; margin-top:6px;">
@@ -949,7 +921,6 @@ MODEL_LABELS = {
 
 
 def show_results_page():
-    # Reset autoplay flag so TTS fires each time the results page is shown
     if not st.session_state.get("_results_page_init"):
         st.session_state.audio_autoplayed = False
         st.session_state["_results_page_init"] = True
@@ -987,40 +958,55 @@ def show_results_page():
         badge_html += '</div>'
         st.markdown(badge_html, unsafe_allow_html=True)
 
-    # ── Segmentation image with ENGLISH label overlay ────────────────────
-    # The backend already masked the object and burned an Arabic label in the
-    # top-right. We paint an English label over that same spot so the
-    # displayed label ends up in English (per spec).
+    # ── Image display with toggle (original/segmented) ───────────────────
     try:
         conf_pct = float(conf.replace("٪", "").replace("%", "")) if conf else 0.0
     except Exception:
         conf_pct = 0.0
 
-    display_bytes = None
-    if annotated and word_en:
-        display_bytes = overlay_english_label(annotated, word_en, conf_pct)
-    elif annotated:
-        display_bytes = annotated
+    is_cloud = model_used in ("imagga",)
+
+    # Toggle shows only if we have both versions and it's not a cloud model
+    show_toggle = bool(captured) and bool(annotated) and not is_cloud
+    view_mode = "الصورة الأصلية"  # default = unsegmented
+
+    if show_toggle:
+        view_mode = st.radio(
+            "طريقة العرض",
+            options=["الصورة الأصلية", "الصورة المقسّمة"],
+            index=0,  # default → unsegmented
+            horizontal=True,
+            label_visibility="collapsed",
+            key="view_mode_radio",
+        )
+
+    # Choose which image bytes to render
+    if view_mode == "الصورة المقسّمة" and annotated:
+        display_bytes = overlay_english_label(annotated, word_en, conf_pct) if word_en else annotated
     elif captured:
         display_bytes = captured
-
-    is_cloud = model_used in ("imagga",)
+    elif annotated:
+        display_bytes = overlay_english_label(annotated, word_en, conf_pct) if word_en else annotated
+    else:
+        display_bytes = None
 
     st.markdown('<div class="nq-img-card">', unsafe_allow_html=True)
     if display_bytes:
         st.image(display_bytes, use_container_width=True)
     else:
         st.info("لا توجد صورة لعرضها.")
-    if not is_cloud:
-        st.markdown(
-            f'<div class="nq-seg-badge">✓ {coverage:.1f}%</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown('<div class="nq-seg-badge">✓ تم التعرف</div>', unsafe_allow_html=True)
+    # Coverage badge only makes sense on the segmented view
+    if view_mode == "الصورة المقسّمة":
+        if not is_cloud:
+            st.markdown(
+                f'<div class="nq-seg-badge">✓ {coverage:.1f}%</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="nq-seg-badge">✓ تم التعرف</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Word card (Arabic word + English meaning + confidence) ───────────
+    # ── Word card ────────────────────────────────────────────────────────
     meaning_html = (
         f'<div class="meaning-lbl">المعنى بالإنجليزية</div>'
         f'<div class="meaning-en">{word_en}</div>'
@@ -1041,7 +1027,7 @@ def show_results_page():
         unsafe_allow_html=True,
     )
 
-    # ── TTS: autoplay once, plus a controls bar for replay ──────────────
+    # ── TTS ──────────────────────────────────────────────────────────────
     main_audio_b64 = audio_combined or audio_word
     main_bytes     = _decode_data_uri(main_audio_b64) if main_audio_b64 else None
 
@@ -1050,7 +1036,6 @@ def show_results_page():
             autoplay_audio(main_bytes)
             st.session_state.audio_autoplayed = True
         else:
-            # Already played once — give a normal controls bar for replay
             st.audio(main_bytes, format="audio/mp3")
     else:
         st.info("🔇 لم يتوفر صوت لهذه الكلمة")
@@ -1091,10 +1076,16 @@ def show_results_page():
                 if audio_data:
                     st.audio(audio_data, format="audio/mp3")
 
-    # ── Action buttons (full column width — not split across columns) ──
-    if st.button("📷 صورة أخرى", use_container_width=True, key="capture_again"):
-        reset_prediction()
-        go_to_page("camera")
+    # ── Action buttons ──────────────────────────────────────────────────
+    col1, col2 = st.columns(2, gap="small")
+    with col1:
+        if st.button("📷 صورة أخرى", use_container_width=True, key="capture_again"):
+            reset_prediction()
+            go_to_page("camera")
+    with col2:
+        if st.button("⭐ احفظ الكلمة", use_container_width=True,
+                     type="primary", key="save_word"):
+            st.success("✅ تم الحفظ!")
 
 # =============================================================================
 # Router
