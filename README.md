@@ -172,6 +172,3 @@ streamlit run kidsapp.py
 > Making learning fun for kids 💡✨
 
 
-**Smart Explorer**
-
-Making learning fun for kids 💡✨
