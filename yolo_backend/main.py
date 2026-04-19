@@ -1,23 +1,21 @@
 """
-Smart Explorer backend v5.1 — Imagga as additional cloud model.
+Smart Explorer backend v5.2 — Custom YOLO + Imagga cloud.
 
 Models available:
-  - custom        : the trained YOLO-seg kids model (best.pt)
-  - fallback      : YOLOv8x-seg pretrained on COCO (80 classes)
-  - imagga        : Imagga /v2/tags (3,000+ tags)
-  - auto          : custom first, falls back to yolov8x-seg if confidence low
+  - custom : the trained YOLO-seg kids model (best.pt)
+  - imagga : Imagga /v2/tags (3,000+ tags)
 
-Local YOLO models return pixel-level segmentation masks.
-Imagga is a classification API — it only returns labels + confidences.
-For Imagga we show the original image with a clean label banner burned in the
-top-right corner instead of mask overlays.
+Local YOLO returns pixel-level segmentation masks.
+Imagga is a classification API — labels + confidences only, no masks.
+For Imagga we show the original image with a clean label banner burned in
+the top-right corner instead of mask overlays.
 
 Credentials (set as environment variables before running):
-  IMAGGA_API_KEY            — Imagga API key
-  IMAGGA_API_SECRET         — Imagga API secret
+  IMAGGA_API_KEY    — Imagga API key
+  IMAGGA_API_SECRET — Imagga API secret
 
-If a credential is missing, the corresponding model is reported as
-unavailable=False in /models and returns 503 if forced via /segment?model=...
+If a credential is missing, Imagga is reported as unavailable in /models
+and returns 503 if forced via /segment?model=imagga.
 """
 
 import asyncio
@@ -49,14 +47,12 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "best.pt")
 FONT_PATH  = os.path.join(BASE_DIR, "NotoNaskhArabic-Regular.ttf")
 
-FALLBACK_CONF_THRESHOLD = 0.45
-EDGE_TTS_VOICE          = "ar-SA-ZariyahNeural"
+EDGE_TTS_VOICE = "ar-SA-ZariyahNeural"
 
 # External API credentials
-IMAGGA_API_KEY        = os.getenv("IMAGGA_API_KEY", "").strip()
-IMAGGA_API_SECRET     = os.getenv("IMAGGA_API_SECRET", "").strip()
-
-IMAGGA_ENABLED        = bool(IMAGGA_API_KEY and IMAGGA_API_SECRET)
+IMAGGA_API_KEY    = os.getenv("IMAGGA_API_KEY", "").strip()
+IMAGGA_API_SECRET = os.getenv("IMAGGA_API_SECRET", "").strip()
+IMAGGA_ENABLED    = bool(IMAGGA_API_KEY and IMAGGA_API_SECRET)
 
 if IMAGGA_ENABLED:
     log.info("Imagga: credentials configured")
@@ -64,19 +60,11 @@ else:
     log.info("Imagga: no credentials (set IMAGGA_API_KEY and IMAGGA_API_SECRET to enable)")
 
 # ----------------------------------------------------------------------
-# Load local YOLO models
+# Load local YOLO model
 # ----------------------------------------------------------------------
 log.info(f"Loading custom model from {MODEL_PATH}")
 custom_model = YOLO(MODEL_PATH)
 log.info(f"Custom model loaded — {len(custom_model.names)} classes")
-
-log.info("Loading fallback model YOLOv8x-seg (COCO 80 classes)")
-try:
-    fallback_model = YOLO("yolov8x-seg.pt")
-    log.info(f"Fallback model loaded — {len(fallback_model.names)} classes")
-except Exception as e:
-    fallback_model = None
-    log.warning(f"Fallback model failed to load: {e}")
 
 # ----------------------------------------------------------------------
 # Arabic font
@@ -202,8 +190,6 @@ _GTTS_HEADERS = {
 
 def _gtts_bytes_sync(text: str, lang: str = "ar") -> Optional[bytes]:
     """Blocking HTTP fetch from translate.google.com. Called via to_thread."""
-    # The endpoint has a ~200-char per-request limit. Short kids' words and
-    # letter names are well under that, so one request is always enough here.
     try:
         params = {
             "ie": "UTF-8",
@@ -362,7 +348,7 @@ def run_imagga(img_bytes: bytes):
 # ----------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------
-app = FastAPI(title="Smart Explorer API", version="5.1.0")
+app = FastAPI(title="Smart Explorer API", version="5.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -394,12 +380,10 @@ def root():
     return {
         "status": "ok",
         "service": "Smart Explorer API",
-        "version": "5.1.0",
+        "version": "5.2.0",
         "models": {
-            "custom":        {"available": True, "classes": len(custom_model.names)},
-            "fallback":      {"available": fallback_model is not None,
-                              "classes": len(fallback_model.names) if fallback_model else 0},
-            "imagga":        {"available": IMAGGA_ENABLED, "classes": "3000+"},
+            "custom": {"available": True, "classes": len(custom_model.names)},
+            "imagga": {"available": IMAGGA_ENABLED, "classes": "3000+"},
         },
         "tts_voice": EDGE_TTS_VOICE,
     }
@@ -409,11 +393,10 @@ def root():
 def health():
     return {
         "status": "healthy",
-        "custom_model_loaded":   custom_model is not None,
-        "fallback_model_loaded": fallback_model is not None,
-        "imagga_enabled":        IMAGGA_ENABLED,
-        "tts_engine":            "edge-tts + gTTS fallback",
-        "tts_voice":             EDGE_TTS_VOICE,
+        "custom_model_loaded": custom_model is not None,
+        "imagga_enabled":      IMAGGA_ENABLED,
+        "tts_engine":          "edge-tts + gTTS fallback",
+        "tts_voice":           EDGE_TTS_VOICE,
     }
 
 
@@ -423,16 +406,6 @@ def list_models():
     return {
         "models": [
             {
-                "id": "auto",
-                "name_ar": "تلقائي",
-                "name_en": "Auto",
-                "emoji": "✨",
-                "num_classes_label": f"{len(custom_model.names)} + 80",
-                "kind": "hybrid",
-                "available": True,
-                "description_ar": "يجرب نموذج الأطفال أولاً، ثم الاحتياطي إن لزم الأمر.",
-            },
-            {
                 "id": "custom",
                 "name_ar": "نموذج الأطفال",
                 "name_en": "Kids model",
@@ -441,16 +414,6 @@ def list_models():
                 "kind": "local-yolo",
                 "available": custom_model is not None,
                 "description_ar": "مدرّب خصيصاً على الأشياء المألوفة للأطفال — الأدق لمحتوى التعلّم.",
-            },
-            {
-                "id": "fallback",
-                "name_ar": "YOLO الشامل",
-                "name_en": "YOLOv8x-seg (COCO)",
-                "emoji": "🔄",
-                "num_classes_label": f"{len(fallback_model.names) if fallback_model else 0}",
-                "kind": "local-yolo",
-                "available": fallback_model is not None,
-                "description_ar": "نموذج عام يغطي 80 فئة من الأشياء اليومية.",
             },
             {
                 "id": "imagga",
@@ -469,7 +432,7 @@ def list_models():
 @app.post("/segment", response_model=SegmentResponse)
 async def segment(
     file: UploadFile = File(...),
-    model: str = Query("auto", description="auto | custom | fallback | imagga"),
+    model: str = Query("custom", description="custom | imagga"),
 ):
     # ---- Read + validate image -------------------------------------------
     try:
@@ -478,59 +441,27 @@ async def segment(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
-    model = (model or "auto").lower().strip()
-    if model not in ("auto", "custom", "fallback", "imagga"):
-        model = "auto"
+    model = (model or "custom").lower().strip()
+    if model not in ("custom", "imagga"):
+        model = "custom"
 
     # Tracked results across branches
-    model_used     = ""
-    label_en       = ""
-    top_conf       = 0.0
-    coverage_pct   = 0.0
-    annotated_img  = None
+    model_used    = ""
+    label_en      = ""
+    top_conf      = 0.0
+    coverage_pct  = 0.0
+    results       = None
 
-    # ---- Local YOLO branches ---------------------------------------------
+    # ---- Local YOLO branch -----------------------------------------------
     if model == "custom":
         r = run_yolo(custom_model, img)
         if r is None:
             raise HTTPException(status_code=422,
                                 detail="لم أتمكن من التعرف على أي شيء. حاول مع صورة أوضح!")
         results, label_en, top_conf, coverage_pct = r
-        model_used    = "custom"
+        model_used = "custom"
 
-    elif model == "fallback":
-        if fallback_model is None:
-            raise HTTPException(status_code=503, detail="YOLO الشامل غير متوفر على الخادم.")
-        r = run_yolo(fallback_model, img)
-        if r is None:
-            raise HTTPException(status_code=422,
-                                detail="لم أتمكن من التعرف على أي شيء. حاول مع صورة أوضح!")
-        results, label_en, top_conf, coverage_pct = r
-        model_used    = "fallback"
-
-    elif model == "auto":
-        r_custom = run_yolo(custom_model, img)
-        chosen   = r_custom
-        chosen_tag = "custom"
-
-        needs_fb = (
-            fallback_model is not None
-            and (r_custom is None or r_custom[2] < FALLBACK_CONF_THRESHOLD)
-        )
-        if needs_fb:
-            low = r_custom[2] if r_custom else 0.0
-            log.info(f"auto: custom conf={low:.2f} < {FALLBACK_CONF_THRESHOLD} — trying fallback")
-            r_fb = run_yolo(fallback_model, img)
-            if r_fb is not None and (r_custom is None or r_fb[2] > r_custom[2]):
-                chosen, chosen_tag = r_fb, "fallback"
-
-        if chosen is None:
-            raise HTTPException(status_code=422,
-                                detail="لم أتمكن من التعرف على أي شيء. حاول مع صورة أوضح!")
-        results, label_en, top_conf, coverage_pct = chosen
-        model_used = chosen_tag
-
-    # ---- Cloud API branches (classification only — no masks) -------------
+    # ---- Cloud API branch (classification only — no masks) ---------------
     elif model == "imagga":
         r = run_imagga(raw)
         if r is None:
@@ -545,8 +476,8 @@ async def segment(
     letters  = spell_word(label_ar)
 
     # ---- Annotate image --------------------------------------------------
-    if model_used in ("custom", "fallback"):
-        annotated_img = annotate_yolo_image(results, label_ar, coverage_pct)  # noqa: F821
+    if model_used == "custom":
+        annotated_img = annotate_yolo_image(results, label_ar, coverage_pct)
     else:
         annotated_img = annotate_classification_image(img, label_ar, top_conf)
     annotated_b64 = image_to_b64(annotated_img)
