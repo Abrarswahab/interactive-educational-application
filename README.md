@@ -47,7 +47,7 @@ An **AI-powered interactive learning application** designed for children (ages 5
 - Imagga API (cloud image classification — 3000+ tags)
 - arabic-reshaper + python-bidi (Arabic text rendering)
 - deep-translator (English → Arabic)
-- 
+  
 ### 🔊 Audio
 - edge-tts (Microsoft Neural TTS — primary)
 
