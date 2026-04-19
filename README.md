@@ -1,102 +1,93 @@
-# 🌟 المستكشف الذكي | Smart Explorer
+# 🌟 Smart Explorer | المستكشف الذكي
 
 ![Python](https://img.shields.io/badge/Python-3.10-blue)
 ![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-green)
 ![YOLO](https://img.shields.io/badge/AI-YOLO-orange)
 
-An interactive educational app for kids that uses **Computer Vision** to recognize objects and teach them in a fun and engaging way.
+An **AI-powered interactive learning application** designed for children (ages 5–10), combining **Computer Vision and Audio Learning** to make education fun, visual, and engaging.
 
 ---
 
-## 🎯 Project Idea
+## 🎯 Overview
 
-The app allows children to:
+**Smart Explorer** transforms traditional learning into an interactive experience where children explore the world around them using AI.
 
-1. Start a fun learning journey 🎈
-2. Choose a character 👧👦
-3. Upload an image 📸
-4. Let AI detect objects 🤖
-5. Learn the word with:
+📸 The child captures or uploads an image →  
+🤖 The system detects the object →  
+🔊 The app teaches the word with sound, spelling, and visuals  
 
-   * Arabic name
-   * Emoji
-   * Spelling
-   * Audio pronunciation 🔊
-
-👉 Goal: Make learning **visual, simple, and fun for kids**.
+> 💡 Goal: Make learning **simple, visual, and enjoyable for kids**
 
 ---
 
 ## ✨ Features
 
-* 🎨 Kid-friendly Arabic UI
-* 👧👦 Character selection
-* 📸 Image upload
-* 🤖 AI object detection
-* 😀 Emoji-based learning
-* 🔤 Word spelling display
-* 🔊 Text-to-Speech pronunciation
+- 🎨 Kid-friendly Arabic UI  
+- 👧👦 Character selection  
+- 📸 Image upload or camera input  
+- 🤖 AI-powered object detection (YOLO)  
+- 🔤 Word spelling display  
+- 🔊 Arabic pronunciation (Text-to-Speech)  
 
 ---
 
-## 🧠 Technologies Used
+## 🧠 Tech Stack
 
-### Frontend
+### 🖥️ Frontend
+- Streamlit  
+- Custom CSS  
 
-* Streamlit
-* CSS
+### ⚙️ Backend
+- FastAPI  
+- Uvicorn  
 
-### Backend
+### 🤖 AI & Vision
+- Ultralytics YOLO  
 
-* FastAPI
-* Uvicorn
-
-### AI
-
-* Ultralytics YOLO
-* Pillow
-* NumPy
-
-### Audio
-
-* Google TTS
+### 🔊 Audio
+- Google Text-to-Speech (gTTS)
 
 ---
 
 ## 📁 Project Structure
 
-```bash
+```
+
 project/
 │
-├── kidsapp.py
+├── kidsapp.py              # Streamlit Frontend
 ├── logo.png
-├── kids.png
+├── kids.png               # Background
 ├── girl.png
 ├── boy.png
 │
 ├── yolo_backend/
-│   ├── main.py
-│   ├── best.pt
+│   ├── main.py            # FastAPI Backend
+│   ├── best.pt            # Trained YOLO Model
 │   ├── requirements.txt
 │
 └── README.md
-```
+
+````
 
 ---
 
 ## ⚙️ How It Works
 
-1. **Start Page** → Welcome screen
-2. **Character Selection** → Choose boy or girl
-3. **Upload Image** → User uploads image
-4. **Send to API** → `/predict`
-5. **YOLO Model** → Detect object
-6. **Display Result** → Name + Emoji + Audio
+1. **Welcome Screen** → Start the journey  
+2. **Character Selection** → Choose avatar  
+3. **Upload / Capture Image**  
+4. **Send to Backend API**  
+5. **YOLO Model Detects Object**  
+6. **Display Result**:
+   - Arabic word  
+   - Spelling  
+   - Audio pronunciation  
 
 ---
 
-## 🚀 Run the Project
+## 🚀 Running the Project
 
 ### 1️⃣ Backend (FastAPI)
 
@@ -104,9 +95,9 @@ project/
 cd yolo_backend
 pip install -r requirements.txt
 python -m uvicorn main:app --reload
-```
+````
 
-Open:
+Open API docs:
 
 ```
 http://127.0.0.1:8000/docs
@@ -124,24 +115,24 @@ streamlit run kidsapp.py
 
 ## 🔗 API Endpoints
 
-| Endpoint   | Method | Description    |
-| ---------- | ------ | -------------- |
-| `/`        | GET    | Root           |
-| `/health`  | GET    | Check status   |
-| `/labels`  | GET    | Get classes    |
-| `/predict` | POST   | Detect object  |
-| `/tts`     | GET    | Text to speech |
+| Endpoint   | Method | Description          |
+| ---------- | ------ | -------------------- |
+| `/`        | GET    | Root                 |
+| `/health`  | GET    | Server status        |
+| `/labels`  | GET    | Available classes    |
+| `/segment` | POST   | Detect object (YOLO) |
+| `/tts`     | GET    | Generate audio       |
 
 ---
 
-## 📊 Example Output
+## 📊 Example Response
 
 ```json
 {
-  "label": "موز",
+  "label_ar": "موز",
+  "label_en": "banana",
   "confidence": 0.94,
   "emoji": "🍌",
-  "class_en": "banana",
   "spelling": ["م", "و", "ز"]
 }
 ```
@@ -150,31 +141,37 @@ streamlit run kidsapp.py
 
 ## ⚠️ Notes
 
-* Start **FastAPI first**
-* Ensure `best.pt` exists
-* Camera may not work → use upload
-* If model fails → demo mode runs
+* Start the backend before the frontend
+* Ensure `best.pt` model exists
+* Camera may not work in some browsers → use image upload
+* If the API fails → fallback/demo mode may run
 
 ---
 
+## 🔮 Future Improvements
 
-## 🔮 Future Work
-
-* 🎮 Mini learning games
+* 🎮 Interactive mini-games
 * 🌍 Multi-language support
 * ☁️ Cloud deployment
+* 🧠 More object categories (100+)
 
 ---
 
 ## 👩‍💻 Team
 
-- Lana Aljuaid
-- Abdularhmn
-- Abrar
-- Mohamed 
+* Lana Aljuaid
+* Abdularhmn
+* Abrar
+* Mohamed
+
 ---
 
 ## 🏷️ Project Name
+
+**Smart Explorer**
+
+> Making learning fun for kids 💡✨
+
 
 **Smart Explorer**
 
