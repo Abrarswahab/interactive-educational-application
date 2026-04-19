@@ -80,10 +80,11 @@ project/
 
 1. **Welcome Screen** → Start the journey  
 2. **Character Selection** → Choose avatar  
-3. **Upload / Capture Image**  
-4. **Send to Backend API**  
-5. **YOLO Model Detects Object**  
-6. **Display Result**:
+3. **Upload / Capture Image**
+4. **Center-Crop the Image → The image is cropped to its center square to focus on one main object and avoid segmenting background clutter.**
+5. **Send to Backend API**  
+6. **YOLO Model Detects Object**  
+7. **Display Result**:
    - Arabic word  
    - Spelling  
    - Audio pronunciation  
