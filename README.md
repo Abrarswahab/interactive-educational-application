@@ -43,10 +43,13 @@ An **AI-powered interactive learning application** designed for children (ages 5
 - Uvicorn  
 
 ### 🤖 AI & Vision
-- Ultralytics YOLO  
-
+- Ultralytics YOLO (custom-trained segmentation model)
+- Imagga API (cloud image classification — 3000+ tags)
+- arabic-reshaper + python-bidi (Arabic text rendering)
+- deep-translator (English → Arabic)
+  
 ### 🔊 Audio
-- Google Text-to-Speech (gTTS)
+- edge-tts (Microsoft Neural TTS — primary)
 
 ---
 
@@ -77,10 +80,11 @@ project/
 
 1. **Welcome Screen** → Start the journey  
 2. **Character Selection** → Choose avatar  
-3. **Upload / Capture Image**  
-4. **Send to Backend API**  
-5. **YOLO Model Detects Object**  
-6. **Display Result**:
+3. **Upload / Capture Image**
+4. **Center-Crop the Image → The image is cropped to its center square to focus on one main object and avoid segmenting background clutter.**
+5. **Send to Backend API**  
+6. **YOLO Model Detects Object**  
+7. **Display Result**:
    - Arabic word  
    - Spelling  
    - Audio pronunciation  
@@ -88,6 +92,9 @@ project/
 ---
 
 ## 🚀 Running the Project
+ 
+You can try the app directly online here:  
+👉 [Smart Explorer Live Demo](https://interactive-educational-application-753zfvedwb6f4mkfjkbfet.streamlit.app/)
 
 ### 1️⃣ Backend (FastAPI)
 
@@ -155,18 +162,14 @@ streamlit run kidsapp.py
 * 🧠 More object categories (100+)
 
 ---
-
 ## 👩‍💻 Team
 
-* Lana Aljuaid
-* Abdularhmn
-* Abrar
-* Mohamed
+* [Lana Aljuaid](https://github.com/LanaAljuaid)
+* [Abdulrahman K B](https://github.com/AbdulrahmanB-25)
+* [Abrar Alabdulwahab](https://github.com/Abrarswahab)
+* [Mohammed Alburaq](https://github.com/MohammedKQ)
 
 ---
-
-## 🏷️ Project Name
-
 **Smart Explorer**
 
 > Making learning fun for kids 💡✨
